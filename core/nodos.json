@@ -2,7 +2,7 @@
   "nodos": [
     {
       "id": 8001,
-      "host": "localhost",
+      "host": "192.168.101.14",
       "puerto": 8001,
       "capacidad": 100,
       "estado": "activo",
