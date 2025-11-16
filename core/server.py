@@ -30,7 +30,7 @@ class Servidor:
     def _cargar_metadata(self):
         """Cargar metadata desde archivo JSON"""
         try:
-            with open('metadata_nodos.json', 'r') as f:
+            with open('nodos.json', 'r') as f:
                 return json.load(f)
         except:
             print("No se pudo cargar metadata_nodos.json")

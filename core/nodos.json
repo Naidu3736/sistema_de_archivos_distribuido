@@ -10,7 +10,7 @@
     },
     {
       "id": 8002, 
-      "host": "localhost",
+      "host": "192.168.101.15",
       "puerto": 8002,
       "capacidad": 100,
       "estado": "activo",
