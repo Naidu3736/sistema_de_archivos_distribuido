@@ -54,10 +54,7 @@ class FileClient:
             response = Response.from_bytes(response_bytes)
             
             if response == Response.UPLOAD_COMPLETE:
-                # Recibir confirmación de bloques
-                blocks_info = self._receive_blocks_info()
-                
-                print(f"UPLOAD_COMPLETE: filename={filename}, file_size={file_size}, blocks_count={len(blocks_info['blocks'])}, blocks_info={blocks_info}")
+                print(f"UPLOAD_COMPLETE: filename={filename}, file_size={file_size}")
                 
                 self.disconnect()
                 return True
