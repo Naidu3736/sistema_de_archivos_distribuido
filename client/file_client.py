@@ -11,14 +11,12 @@ class FileClient:
         self.BUFFER_SIZE = buffer_size
         self.temp_dir = "temp"
         self.socket = None
-        self.connected = False
         os.makedirs(self.temp_dir, exist_ok=True)
     
     def connect(self):
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host_server, self.port_server))
-            self.connected = True
             
             print(f"CLIENT_CONNECTED: host={self.host_server}, port={self.port_server}, status=connected")
             
@@ -29,12 +27,12 @@ class FileClient:
         
     def upload_file(self, file_path: str):
         """Sube un archivo al dfs"""
-        if not self.connected:
-            # if not self.connect():
-                return False
+        if not self.connect():
+            return False
          
         if not os.path.exists(file_path):
             print(f"UPLOAD_ERROR: file_path={file_path}, error=File does not exist")
+            self.disconnect()
             return False
             
         try:
@@ -61,22 +59,25 @@ class FileClient:
                 
                 print(f"UPLOAD_COMPLETE: filename={filename}, file_size={file_size}, blocks_count={len(blocks_info['blocks'])}, blocks_info={blocks_info}")
                 
+                self.disconnect()
                 return True
             
             elif response == Response.SERVER_ERROR:
+                self.disconnect()
                 return False   
             
             else:
+                self.disconnect()
                 return False
         
         except Exception as e:
             print(f"UPLOAD_ERROR: file_path={file_path}, error={str(e)}")
+            self.disconnect()
             return False    
 
     def download_file(self, filename: str, save_path: str):
         """Descarga un archivo del dfs"""
-        if not self.connected:
-            # if not self.connect():
+        if not self.connect():
                 return False
             
         try:
@@ -94,9 +95,11 @@ class FileClient:
             response = Response.from_bytes(response_bytes)
             
             if response == Response.FILE_NOT_FOUND:
+                self.disconnect()
                 return False
             
             elif response != Response.SUCCESS:
+                self.disconnect()
                 return False
             
             # Recibir bloques del dfs
@@ -113,12 +116,15 @@ class FileClient:
             
             if response == Response.DOWNLOAD_COMPLETE:
                 print(f"DOWNLOAD_COMPLETE: filename={filename}, save_path={save_path}, blocks_count={len(blocks_info['blocks'])}")
+                self.disconnect()
                 return True
             else:
+                self.disconnect()
                 return False
             
         except Exception as e:
             print(f"DOWNLOAD_ERROR: filename={filename}, error={str(e)}")
+            self.disconnect()
             return False
 
     def _send_metadata_file(self, filename: str, file_size: int):
@@ -250,8 +256,7 @@ class FileClient:
             
     def list_files(self):
         """Solicita lista de archivos disponibles"""
-        if not self.connected:
-            if not self.connect():
+        if not self.connect():
                 return []
             
         try:
@@ -276,16 +281,17 @@ class FileClient:
 
             print(f"FILES_LIST_RECEIVED: files_count={len(available_blocks)}")
             
+            self.disconnect()
             return available_blocks
             
         except Exception as e:
             print(f"LIST_FILES_ERROR: error={str(e)}")
+            self.disconnect()
             return []
     
     def disconnect(self):
         """Cierra la conexión"""
         if self.socket:
             self.socket.close()
-            self.connected = False
             
             print(f"CLIENT_DISCONNECTED: host={self.host_server}, port={self.port_server}")

@@ -1,9 +1,7 @@
-# server_main.py
 import time
-from core.event_manager import event_manager
 from server.network_server import NetworkServer
 
-def main():    
+def main():
     print("Iniciando Servidor DFS...")
     
     # Crear y iniciar servidor

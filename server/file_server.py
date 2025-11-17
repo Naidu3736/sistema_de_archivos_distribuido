@@ -119,7 +119,7 @@ class FileServer:
 
         blocks = split(file_path, sub_dir_path)
 
-        print(f'BLOCK_SPLIT_COMPLETE: filename={filename}, blocks_count={len(blocks)}, blocks={blocks}')
+        print(f'BLOCK_SPLIT_COMPLETE: filename={filename}, blocks_count={len(blocks)}   ')
 
         return {
             'sub_dir': sub_dir,
