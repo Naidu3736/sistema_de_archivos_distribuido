@@ -6,20 +6,20 @@ class CommandHandler:
     def __init__(self, file_server:FileServer):
         self.file_server = file_server
 
-    def handle_command(self, client_socket:socket.socket, command:Command):
-        """ Despacha el comando a la función correspondiente """
+    def handle_command(self, client_socket: socket.socket, command: Command):
+        """Despacha el comando a la función correspondiente"""
         if command == Command.UPLOAD:
-            pass
+            self._handle_upload(client_socket)
         elif command == Command.DOWNLOAD:
-            pass
+            self._handle_download(client_socket)
         elif command == Command.LIST_FILES:
-            pass
+            self._handle_list_files(client_socket)
         elif command == Command.DELETE:
-            pass
+            self._handle_delete(client_socket)
         elif command == Command.INFO:
-            pass
+            self._handle_info(client_socket)
         else:
-            pass
+            self._handle_unknown(client_socket)
 
 
     def _handle_upload(self, client_socke:socket.socket):

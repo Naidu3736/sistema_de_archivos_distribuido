@@ -20,20 +20,11 @@ class FileClient:
             self.socket.connect((self.host_server, self.port_server))
             self.connected = True
             
-            event_manager.publish('CLIENT_CONNECTED', {
-                'host': self.host_server,
-                'port': self.port_server,
-                'status': 'connected'
-            })
+            print(f"CLIENT_CONNECTED: host={self.host_server}, port={self.port_server}, status=connected")
             
             return True
         except Exception as e:
-            event_manager.publish('CLIENT_CONNECTION_ERROR', {
-                'host': self.host_server,
-                'port': self.port_server,
-                'error': str(e),
-                'status': 'failed'
-            })
+            print(f"CLIENT_CONNECTION_ERROR: host={self.host_server}, port={self.port_server}, error={str(e)}, status=failed")
             return False
         
     def upload_file(self, file_path: str):
@@ -43,10 +34,7 @@ class FileClient:
                 return False
          
         if not os.path.exists(file_path):
-            event_manager.publish('UPLOAD_ERROR', {
-                'file_path': file_path,
-                'error': 'File does not exist'
-            })
+            print(f"UPLOAD_ERROR: file_path={file_path}, error=File does not exist")
             return False
             
         try:
@@ -56,11 +44,7 @@ class FileClient:
             filename = os.path.basename(file_path)
             file_size = os.path.getsize(file_path)
             
-            event_manager.publish('UPLOAD_START', {
-                'filename': filename,
-                'file_path': file_path,
-                'file_size': file_size
-            })
+            print(f"UPLOAD_START: filename={filename}, file_path={file_path}, file_size={file_size}")
             
             # Enviar metadata del archivo
             self._send_metadata_file(filename, file_size)
@@ -75,12 +59,7 @@ class FileClient:
                 # Recibir confirmación de bloques
                 blocks_info = self._receive_blocks_info()
                 
-                event_manager.publish('UPLOAD_COMPLETE', {
-                    'filename': filename,
-                    'file_size': file_size,
-                    'blocks_count': len(blocks_info['blocks']),
-                    'blocks_info': blocks_info
-                })
+                print(f"UPLOAD_COMPLETE: filename={filename}, file_size={file_size}, blocks_count={len(blocks_info['blocks'])}, blocks_info={blocks_info}")
                 
                 return True
             
@@ -91,10 +70,7 @@ class FileClient:
                 return False
         
         except Exception as e:
-            event_manager.publish('UPLOAD_ERROR', {
-                'file_path': file_path,
-                'error': str(e)
-            })
+            print(f"UPLOAD_ERROR: file_path={file_path}, error={str(e)}")
             return False    
 
     def download_file(self, filename: str, save_path: str):
@@ -104,10 +80,7 @@ class FileClient:
                 return False
             
         try:
-            event_manager.publish('DOWNLOAD_START', {
-                'filename': filename,
-                'save_path': save_path
-            })
+            print(f"DOWNLOAD_START: filename={filename}, save_path={save_path}")
             
             # Enviar solicitud
             self.socket.send(Command.DOWNLOAD.to_bytes())
@@ -139,20 +112,13 @@ class FileClient:
             response = Response.from_bytes(response_bytes)
             
             if response == Response.DOWNLOAD_COMPLETE:
-                event_manager.publish('DOWNLOAD_COMPLETE', {
-                    'filename': filename,
-                    'save_path': save_path,
-                    'blocks_count': len(blocks_info['blocks'])
-                })
+                print(f"DOWNLOAD_COMPLETE: filename={filename}, save_path={save_path}, blocks_count={len(blocks_info['blocks'])}")
                 return True
             else:
                 return False
             
         except Exception as e:
-            event_manager.publish('DOWNLOAD_ERROR', {
-                'filename': filename,
-                'error': str(e)
-            })
+            print(f"DOWNLOAD_ERROR: filename={filename}, error={str(e)}")
             return False
 
     def _send_metadata_file(self, filename: str, file_size: int):
@@ -168,10 +134,7 @@ class FileClient:
         # Enviar tamaño del archivo
         self.socket.send(file_size.to_bytes(8, 'big'))
         
-        event_manager.publish('METADATA_SENT', {
-            'filename': filename,
-            'file_size': file_size
-        })
+        print(f"METADATA_SENT: filename={filename}, file_size={file_size}")
             
     def _send_content_file(self, file_path: str, file_size: int):
         """Envía el contenido del archivo al dfs"""
@@ -184,12 +147,7 @@ class FileClient:
                 
                 # Publicar progreso
                 progress = (bytes_sent / file_size) * 100
-                event_manager.publish('UPLOAD_PROGRESS', {
-                    'filename': os.path.basename(file_path),
-                    'bytes_sent': bytes_sent,
-                    'file_size': file_size,
-                    'progress': progress
-                })
+                print(f"UPLOAD_PROGRESS: filename={os.path.basename(file_path)}, bytes_sent={bytes_sent}, file_size={file_size}, progress={progress}")
     
     def _receive_blocks_info(self):
         """Recibir información de bloques del dfs"""
@@ -231,10 +189,7 @@ class FileClient:
         sub_dir = blocks_info['sub_dir']
         blocks = blocks_info['blocks']
         
-        event_manager.publish('BLOCKS_RECEIVE_START', {
-            'filename': filename,
-            'blocks_count': len(blocks)
-        })
+        print(f"BLOCKS_RECEIVE_START: filename={filename}, blocks_count={len(blocks)}")
         
         # Crear sub-directorio temporal
         sub_dir_path = os.path.join(self.temp_dir, sub_dir)
@@ -255,13 +210,7 @@ class FileClient:
                     f.write(chunk)
                     bytes_received += len(chunk)
             
-            event_manager.publish('BLOCK_RECEIVED', {
-                'filename': filename,
-                'block_name': block,
-                'block_size': block_size,
-                'block_index': i + 1,
-                'total_blocks': len(blocks)
-            })
+            print(f"BLOCK_RECEIVED: filename={filename}, block_name={block}, block_size={block_size}, block_index={i + 1}, total_blocks={len(blocks)}")
                     
         return blocks_info
                     
@@ -275,17 +224,11 @@ class FileClient:
         file_path = os.path.join(save_path, filename)
         os.makedirs(save_path, exist_ok=True)
         
-        event_manager.publish('FILE_RECONSTRUCTION_START', {
-            'filename': filename,
-            'blocks_count': len(blocks)
-        })
+        print(f"FILE_RECONSTRUCTION_START: filename={filename}, blocks_count={len(blocks)}")
         
         union(blocks, file_path, sub_dir_path)
         
-        event_manager.publish('FILE_RECONSTRUCTION_COMPLETE', {
-            'filename': filename,
-            'file_path': file_path
-        })
+        print(f"FILE_RECONSTRUCTION_COMPLETE: filename={filename}, file_path={file_path}")
         
     def _cleanup_temp_blocks(self, blocks_info: dict):
         """Limpia bloques temporales"""
@@ -300,16 +243,10 @@ class FileClient:
             if os.path.exists(self.temp_dir) and not os.listdir(self.temp_dir):
                 os.rmdir(self.temp_dir)
             
-            event_manager.publish('TEMP_BLOCKS_CLEANED', {
-                'filename': filename,
-                'blocks_count': len(blocks)
-            })
+            print(f"TEMP_BLOCKS_CLEANED: filename={filename}, blocks_count={len(blocks)}")
         
         except Exception as e:
-            event_manager.publish('CLEANUP_ERROR', {
-                'filename': filename,
-                'error': str(e)
-            })
+            print(f"CLEANUP_ERROR: filename={filename}, error={str(e)}")
             
     def list_files(self):
         """Solicita lista de archivos disponibles"""
@@ -337,16 +274,12 @@ class FileClient:
                 block_size = int.from_bytes(size_bytes, 'big')
                 available_blocks.append((block_name, block_size))
 
-            event_manager.publish('FILES_LIST_RECEIVED', {
-                'files_count': len(available_blocks)
-            })
+            print(f"FILES_LIST_RECEIVED: files_count={len(available_blocks)}")
             
             return available_blocks
             
         except Exception as e:
-            event_manager.publish('LIST_FILES_ERROR', {
-                'error': str(e)
-            })
+            print(f"LIST_FILES_ERROR: error={str(e)}")
             return []
     
     def disconnect(self):
@@ -355,7 +288,4 @@ class FileClient:
             self.socket.close()
             self.connected = False
             
-            event_manager.publish('CLIENT_DISCONNECTED', {
-                'host': self.host_server,
-                'port': self.port_server
-            })
+            print(f"CLIENT_DISCONNECTED: host={self.host_server}, port={self.port_server}")

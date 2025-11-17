@@ -41,21 +41,14 @@ class FileServer:
             filename_bytes = client.recv(filename_size)
             filename = filename_bytes.decode('utf-8')
 
-            event_manager.publish('DOWNLOAD_REQUEST', {
-                'filename': filename,
-                'client': client.getpeername()
-            })
+            print(f'DOWNLOAD_REQUEST: filename={filename}, client={client.getpeername()}')
 
             # Buscar archivo en el sistema
             sub_dir = os.path.splitext(filename)[0]
             blocks_dir = os.path.join(self.block_dir, sub_dir)
             
             if not os.path.exists(blocks_dir):
-                event_manager.publish('DOWNLOAD_ERROR', {
-                    'filename': filename,
-                    'error': 'File not found',
-                    'client': client.getpeername()
-                })
+                print(f'DOWNLOAD_ERROR: filename={filename}, error=File not found, client={client.getpeername()}')
                 client.send(Response.FILE_NOT_FOUND.to_bytes())
                 return
             
@@ -76,18 +69,10 @@ class FileServer:
 
             client.send(Response.DOWNLOAD_COMPLETE.to_bytes())
 
-            event_manager.publish('DOWNLOAD_COMPLETE', {
-                'filename': filename,
-                'blocks_count': len(blocks),
-                'client': client.getpeername()
-            })
+            print(f'DOWNLOAD_COMPLETE: filename={filename}, blocks_count={len(blocks)}, client={client.getpeername()}')
 
         except Exception as e:
-            event_manager.publish('DOWNLOAD_ERROR', {
-                'filename': filename,
-                'error': str(e),
-                'client': client.getpeername()
-            })
+            print(f'DOWNLOAD_ERROR: filename={filename}, error={str(e)}, client={client.getpeername()}')
 
             client.send(Response.SERVER_ERROR.to_bytes())
 
@@ -99,10 +84,7 @@ class FileServer:
         file_bytes = client.recv(size)
         filename = file_bytes.decode('utf-8')
 
-        event_manager.publish('FILE_RECEIVE_START', {
-            'filename': filename,
-            'client': client.getpeername()
-        })
+        print(f'FILE_RECEIVE_START: filename={filename}, client={client.getpeername()}')
 
         # Recibir tamaño del archivo
         file_size_bytes = client.recv(8)
@@ -116,23 +98,13 @@ class FileServer:
             while bytes_received < file_size:
                 progress = (bytes_received / file_size) * 100.0
 
-                event_manager.publish('FILE_RECEIVE_PROGRESS', {
-                    'filename': filename,
-                    'bytes_received': bytes_received,
-                    'file_size': file_size,
-                    'progress': progress,
-                    'client': client.getpeername()
-                })
+                print(f'FILE_RECEIVE_PROGRESS: filename={filename}, bytes_received={bytes_received}, file_size={file_size}, progress={progress}, client={client.getpeername()}')
 
                 chunk = client.recv(min(self.BUFFER_SIZE, file_size - bytes_received))
                 f.write(chunk)
                 bytes_received += len(chunk)
         
-        event_manager.publish('FILE_RECEIVE_COMPLETE', {
-            'filename': filename,
-            'file_size': file_size,
-            'client': client.getpeername()
-        })
+        print(f'FILE_RECEIVE_COMPLETE: filename={filename}, file_size={file_size}, client={client.getpeername()}')
 
         return temp_file
     
@@ -140,21 +112,14 @@ class FileServer:
         """Divide el archivo en bloques"""
         filename = os.path.basename(file_path)
 
-        event_manager.publish('BLOCK_SPLIT_START', {
-            'filename': filename,
-            'file_path': file_path
-        })
+        print(f'BLOCK_SPLIT_START: filename={filename}, file_path={file_path}')
 
         sub_dir = os.path.splitext(filename)[0]
         sub_dir_path = os.path.join(self.block_dir, sub_dir)
 
         blocks = split(file_path, sub_dir_path)
 
-        event_manager.publish('BLOCK_SPLIT_COMPLETE', {
-            'filename': filename,
-            'blocks_count': len(blocks),
-            'blocks': blocks
-        })
+        print(f'BLOCK_SPLIT_COMPLETE: filename={filename}, blocks_count={len(blocks)}, blocks={blocks}')
 
         return {
             'sub_dir': sub_dir,
@@ -172,14 +137,9 @@ class FileServer:
             if not os.listdir(temp_dir):
                 os.rmdir(temp_dir)
             
-            event_manager.publish('TEMP_FILE_CLEANED', {
-                'file_path': temp_file_path
-            })
+            print(f'TEMP_FILE_CLEANED: file_path={temp_file_path}')
         except Exception as e:
-            event_manager.publish('CLEANUP_ERROR', {
-                'file_path': temp_file_path,
-                'error': str(e)
-            })
+            print(f'CLEANUP_ERROR: file_path={temp_file_path}, error={str(e)}')
 
     def _send_blocks_to_client(self, client: socket.socket, blocks_info: dict):
         """Envía todos los bloques al cliente"""
@@ -188,11 +148,7 @@ class FileServer:
         blocks = list(blocks_info['blocks'])
         blocks_dir = str(blocks_info['blocks_dir'])
 
-        event_manager.publish('BLOCKS_SEND_START', {
-            'filename': filename,
-            'blocks_count': len(blocks),
-            'client': client.getpeername()
-        })
+        print(f'BLOCKS_SEND_START: filename={filename}, blocks_count={len(blocks)}, client={client.getpeername()}')
 
         # Enviar metadata
         # Nombre de sub-directorio
@@ -212,21 +168,13 @@ class FileServer:
         for i, block in enumerate(blocks):
             self._send_single_block(client, block, blocks_dir, i, len(blocks))
 
-        event_manager.publish('BLOCKS_SEND_COMPLETE', {
-            'filename': filename,
-            'blocks_count': len(blocks),
-            'client': client.getpeername()
-        })
+        print(f'BLOCKS_SEND_COMPLETE: filename={filename}, blocks_count={len(blocks)}, client={client.getpeername()}')
 
     def _send_single_block(self, client: socket.socket, block_name: str, blocks_dir: str, block_index: int, total_blocks: int):
         """Envía un solo bloque al cliente"""
         block_path = os.path.join(blocks_dir, block_name)
 
-        event_manager.publish('BLOCK_SEND_START', {
-            'block_name': block_name,
-            'block_index': block_index + 1,
-            'total_blocks': total_blocks
-        })
+        print(f'BLOCK_SEND_START: block_name={block_name}, block_index={block_index + 1}, total_blocks={total_blocks}')
 
         # Enviar nombre del bloque
         block_name_bytes = block_name.encode('utf-8')
@@ -247,18 +195,6 @@ class FileServer:
 
                 # Publicar progreso de envío del bloque
                 progress = (bytes_sent / block_size) * 100.0
-                event_manager.publish('BLOCK_SEND_PROGRESS', {
-                    'block_name': block_name,
-                    'bytes_sent': bytes_sent,
-                    'block_size': block_size,
-                    'progress': progress,
-                    'block_index': block_index + 1,
-                    'total_blocks': total_blocks
-                })
+                print(f'BLOCK_SEND_PROGRESS: block_name={block_name}, bytes_sent={bytes_sent}, block_size={block_size}, progress={progress}, block_index={block_index + 1}, total_blocks={total_blocks}')
 
-        event_manager.publish('BLOCK_SEND_COMPLETE', {
-            'block_name': block_name,
-            'block_size': block_size,
-            'block_index': block_index + 1,
-            'total_blocks': total_blocks
-        })
+        print(f'BLOCK_SEND_COMPLETE: block_name={block_name}, block_size={block_size}, block_index={block_index + 1}, total_blocks={total_blocks}')

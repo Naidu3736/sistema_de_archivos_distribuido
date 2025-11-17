@@ -19,18 +19,12 @@ class NetworkServer:
         self.socket.bind((self.host, self.port))
         self.socket.listen(5)
         
-        event_manager.publish('SERVER_STARTED', {
-            'host': self.host,
-            'port': self.port
-        })
+        event_manager.publish(f"SERVER_STARTED: host: {self.host}, port: {self.port}")
         
         while True:
             client_socket, addr = self.socket.accept()
             
-            event_manager.publish('CLIENT_CONNECTED', {
-                'client_address': addr[0],
-                'client_port': addr[1]
-            })
+            print(f"CLIENT_CONNECTED: client_address: {addr[0]}, client_port: {addr[1]}")
             
             # Manejar cliente en hilo separado
             client_thread = threading.Thread(
@@ -41,18 +35,24 @@ class NetworkServer:
     
     def handle_client(self, client_socket:socket.socket, addr):
         try:
-            # Recibir comando
-            command_bytes = client_socket.recv(4)
-            command = Command.from_bytes(command_bytes)
+            client_socket.settimeout(30.0)
 
-            # Delegar al CommandHandler
-            self.command_handler.handle_command(client_socket, command)
-                    
+            while True:
+                command_bytes = client_socket.recv(4)
+                print(f"DEBUG: Bytes recibidos: {command_bytes.hex()} = {int.from_bytes(command_bytes, 'big')}")
+
+                if not command_bytes:
+                    break
+
+                command = Command.from_bytes(command_bytes)
+                print(f"Comando de {addr}: {command.name}")
+
+                # Delegar al CommandHandler
+                self.command_handler.handle_command(client_socket, command)
+        except socket.timeout:
+            print(f"Timeout con cliente {addr}")
         except Exception as e:
-            event_manager.publish('CLIENT_HANDLER_ERROR', {
-                'client_address': addr[0],
-                'client_port': addr[1],
-                'error': str(e)
-            })
+            print(f"CLIENT_HANDLER_ERROR: client_address={addr[0]}, client_port={addr[1]}, error={str(e)}")
         finally:
             client_socket.close()
+            print(f"CLIENT_DISCONNECTED: client_address: {addr[0]}, client_port: {addr[1]}")
