@@ -1,7 +1,7 @@
 import socket
 import os
 from core.event_manager import event_manager
-from core.protocol import Command
+from core.protocol import Command, Response
 from core.split_union import union, clean_blocks
 
 class FileClient:
@@ -68,17 +68,27 @@ class FileClient:
             # Enviar contenido
             self._send_content_file(file_path, file_size)
             
-            # Recibir confirmación de bloques
-            blocks_info = self._receive_blocks_info()
+            response_bytes = self.socket.recv(4)
+            response = Response.from_bytes(response_bytes)
             
-            event_manager.publish('UPLOAD_COMPLETE', {
-                'filename': filename,
-                'file_size': file_size,
-                'blocks_count': len(blocks_info['blocks']),
-                'blocks_info': blocks_info
-            })
+            if response == Response.UPLOAD_COMPLETE:
+                # Recibir confirmación de bloques
+                blocks_info = self._receive_blocks_info()
+                
+                event_manager.publish('UPLOAD_COMPLETE', {
+                    'filename': filename,
+                    'file_size': file_size,
+                    'blocks_count': len(blocks_info['blocks']),
+                    'blocks_info': blocks_info
+                })
+                
+                return True
             
-            return True
+            elif response == Response.SERVER_ERROR:
+                return False   
+            
+            else:
+                return False
         
         except Exception as e:
             event_manager.publish('UPLOAD_ERROR', {
@@ -107,6 +117,15 @@ class FileClient:
             self.socket.send(len(filename_bytes).to_bytes(4, 'big'))
             self.socket.send(filename_bytes)
             
+            response_bytes = self.socket.recv(4)
+            response = Response.from_bytes(response_bytes)
+            
+            if response == Response.FILE_NOT_FOUND:
+                return False
+            
+            elif response != Response.SUCCESS:
+                return False
+            
             # Recibir bloques del dfs
             blocks_info = self._receive_block_from_dfs()
             
@@ -116,13 +135,18 @@ class FileClient:
             # Limpiar bloques temporales
             self._cleanup_temp_blocks(blocks_info)
             
-            event_manager.publish('DOWNLOAD_COMPLETE', {
-                'filename': filename,
-                'save_path': save_path,
-                'blocks_count': len(blocks_info['blocks'])
-            })
+            response_bytes = self.socket.recv(4)
+            response = Response.from_bytes(response_bytes)
             
-            return True
+            if response == Response.DOWNLOAD_COMPLETE:
+                event_manager.publish('DOWNLOAD_COMPLETE', {
+                    'filename': filename,
+                    'save_path': save_path,
+                    'blocks_count': len(blocks_info['blocks'])
+                })
+                return True
+            else:
+                return False
             
         except Exception as e:
             event_manager.publish('DOWNLOAD_ERROR', {
