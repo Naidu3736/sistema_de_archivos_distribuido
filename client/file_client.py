@@ -1,6 +1,5 @@
 import socket
 import os
-from core.event_manager import event_manager
 from core.protocol import Command, Response
 from core.split_union import union, clean_blocks
 
@@ -12,17 +11,17 @@ class FileClient:
         self.temp_dir = "temp"
         self.socket = None
         os.makedirs(self.temp_dir, exist_ok=True)
+        print(f"Cliente de archivos configurado - Servidor: {host_server}:{port_server}")
     
     def connect(self):
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host_server, self.port_server))
             
-            print(f"CLIENT_CONNECTED: host={self.host_server}, port={self.port_server}, status=connected")
-            
+            print(f"Conectado al servidor {self.host_server}:{self.port_server}")
             return True
         except Exception as e:
-            print(f"CLIENT_CONNECTION_ERROR: host={self.host_server}, port={self.port_server}, error={str(e)}, status=failed")
+            print(f"Error de conexión: {str(e)}")
             return False
         
     def upload_file(self, file_path: str):
@@ -31,59 +30,49 @@ class FileClient:
             return False
          
         if not os.path.exists(file_path):
-            print(f"UPLOAD_ERROR: file_path={file_path}, error=File does not exist")
+            print(f"Error: Archivo no encontrado - {file_path}")
             self.disconnect()
             return False
             
         try:
-            # Enviar solicitud
+            print("Iniciando subida de archivo...")
             self.socket.send(Command.UPLOAD.to_bytes())
 
             filename = os.path.basename(file_path)
             file_size = os.path.getsize(file_path)
             
-            print(f"UPLOAD_START: filename={filename}, file_path={file_path}, file_size={file_size}")
+            print(f"Subiendo archivo: {filename} ({file_size} bytes)")
             
-            # Enviar metadata del archivo
             self._send_metadata_file(filename, file_size)
-            
-            # Enviar contenido
             self._send_content_file(file_path, file_size)
             
             response_bytes = self.socket.recv(4)
             response = Response.from_bytes(response_bytes)
             
             if response == Response.UPLOAD_COMPLETE:
-                print(f"UPLOAD_COMPLETE: filename={filename}, file_size={file_size}")
-                
+                print(f"Subida completada: {filename}")
                 self.disconnect()
                 return True
-            
-            elif response == Response.SERVER_ERROR:
-                self.disconnect()
-                return False   
-            
             else:
+                print(f"Error en subida: {response}")
                 self.disconnect()
                 return False
         
         except Exception as e:
-            print(f"UPLOAD_ERROR: file_path={file_path}, error={str(e)}")
+            print(f"Error durante subida: {str(e)}")
             self.disconnect()
             return False    
 
     def download_file(self, filename: str, save_path: str):
         """Descarga un archivo del dfs"""
         if not self.connect():
-                return False
+            return False
             
         try:
-            print(f"DOWNLOAD_START: filename={filename}, save_path={save_path}")
+            print(f"Solicitando descarga: {filename}")
             
-            # Enviar solicitud
             self.socket.send(Command.DOWNLOAD.to_bytes())
             
-            # Enviar nombre del archivo
             filename_bytes = filename.encode('utf-8')
             self.socket.send(len(filename_bytes).to_bytes(4, 'big'))
             self.socket.send(filename_bytes)
@@ -92,35 +81,38 @@ class FileClient:
             response = Response.from_bytes(response_bytes)
             
             if response == Response.FILE_NOT_FOUND:
+                print(f"Archivo no encontrado en servidor: {filename}")
                 self.disconnect()
                 return False
             
             elif response != Response.SUCCESS:
+                print(f"Error del servidor: {response}")
                 self.disconnect()
                 return False
             
-            # Recibir bloques del dfs
+            print("Preparando recepción de bloques...")
             blocks_info = self._receive_block_from_dfs()
             
-            # Reconstruir archivo
+            print("Reconstruyendo archivo...")
             self._reconstruct_file(blocks_info, save_path)
             
-            # Limpiar bloques temporales
+            print("Limpiando bloques temporales...")
             self._cleanup_temp_blocks(blocks_info)
             
             response_bytes = self.socket.recv(4)
             response = Response.from_bytes(response_bytes)
             
             if response == Response.DOWNLOAD_COMPLETE:
-                print(f"DOWNLOAD_COMPLETE: filename={filename}, save_path={save_path}, blocks_count={len(blocks_info['blocks'])}")
+                print(f"Descarga completada: {filename} - {len(blocks_info['blocks'])} bloques")
                 self.disconnect()
                 return True
             else:
+                print(f"Error en descarga: {response}")
                 self.disconnect()
                 return False
             
         except Exception as e:
-            print(f"DOWNLOAD_ERROR: filename={filename}, error={str(e)}")
+            print(f"Error durante descarga: {str(e)}")
             self.disconnect()
             return False
 
@@ -128,19 +120,17 @@ class FileClient:
         """Envía metadata del archivo al dfs"""
         filename_bytes = filename.encode('utf-8')
         
-        # Enviar tamaño del nombre
         self.socket.send(len(filename_bytes).to_bytes(4, 'big'))
-        
-        # Enviar nombre
         self.socket.send(filename_bytes)
-        
-        # Enviar tamaño del archivo
         self.socket.send(file_size.to_bytes(8, 'big'))
         
-        print(f"METADATA_SENT: filename={filename}, file_size={file_size}")
+        print(f"Metadata enviada: {filename} - {file_size} bytes")
             
     def _send_content_file(self, file_path: str, file_size: int):
         """Envía el contenido del archivo al dfs"""
+        filename = os.path.basename(file_path)
+        print(f"Enviando contenido del archivo...")
+        
         with open(file_path, 'rb') as f:
             bytes_sent = 0
             while bytes_sent < file_size:
@@ -148,26 +138,25 @@ class FileClient:
                 self.socket.send(chunk)
                 bytes_sent += len(chunk)
                 
-                # Publicar progreso
-                progress = (bytes_sent / file_size) * 100
-                print(f"UPLOAD_PROGRESS: filename={os.path.basename(file_path)}, bytes_sent={bytes_sent}, file_size={file_size}, progress={progress}")
+                if bytes_sent % (1024 * 1024) == 0 or bytes_sent == file_size:
+                    mb_sent = bytes_sent / (1024 * 1024)
+                    mb_total = file_size / (1024 * 1024)
+                    print(f"Progreso envío: {mb_sent:.1f} / {mb_total:.1f} MB")
     
     def _receive_blocks_info(self):
         """Recibir información de bloques del dfs"""
-        # Recibir metadata de bloques
-        # Nombre del sub-directorio
+        print("Recibiendo información de bloques...")
+        
         size_bytes = self.socket.recv(4)
         size = int.from_bytes(size_bytes, 'big')
         sub_dir_bytes = self.socket.recv(size)
         sub_dir = sub_dir_bytes.decode('utf-8')
         
-        # Nombre del archivo
         size_bytes = self.socket.recv(4)
         size = int.from_bytes(size_bytes, 'big')
         filename_bytes = self.socket.recv(size)
         filename = filename_bytes.decode('utf-8')
         
-        # Número de bloques
         size_bytes = self.socket.recv(4)
         blocks_count = int.from_bytes(size_bytes, 'big')
         
@@ -192,15 +181,12 @@ class FileClient:
         sub_dir = blocks_info['sub_dir']
         blocks = blocks_info['blocks']
         
-        print(f"BLOCKS_RECEIVE_START: filename={filename}, blocks_count={len(blocks)}")
+        print(f"Recibiendo {len(blocks)} bloques: {filename}")
         
-        # Crear sub-directorio temporal
         sub_dir_path = os.path.join(self.temp_dir, sub_dir)
         os.makedirs(sub_dir_path, exist_ok=True)
         
-        # Recibir contenido de los bloques
         for i, block in enumerate(blocks):
-            # Recibir tamaño del bloque
             block_size_bytes = self.socket.recv(8)
             block_size = int.from_bytes(block_size_bytes, 'big')
             
@@ -213,7 +199,7 @@ class FileClient:
                     f.write(chunk)
                     bytes_received += len(chunk)
             
-            print(f"BLOCK_RECEIVED: filename={filename}, block_name={block}, block_size={block_size}, block_index={i + 1}, total_blocks={len(blocks)}")
+            print(f"Bloque {i+1}/{len(blocks)} recibido: {block} - {block_size} bytes")
                     
         return blocks_info
                     
@@ -227,11 +213,11 @@ class FileClient:
         file_path = os.path.join(save_path, filename)
         os.makedirs(save_path, exist_ok=True)
         
-        print(f"FILE_RECONSTRUCTION_START: filename={filename}, blocks_count={len(blocks)}")
+        print(f"Reconstruyendo archivo desde {len(blocks)} bloques...")
         
         union(blocks, file_path, sub_dir_path)
         
-        print(f"FILE_RECONSTRUCTION_COMPLETE: filename={filename}, file_path={file_path}")
+        print(f"Archivo reconstruido: {file_path}")
         
     def _cleanup_temp_blocks(self, blocks_info: dict):
         """Limpia bloques temporales"""
@@ -246,18 +232,18 @@ class FileClient:
             if os.path.exists(self.temp_dir) and not os.listdir(self.temp_dir):
                 os.rmdir(self.temp_dir)
             
-            print(f"TEMP_BLOCKS_CLEANED: filename={filename}, blocks_count={len(blocks)}")
+            print(f"Bloques temporales limpiados: {len(blocks)} bloques")
         
         except Exception as e:
-            print(f"CLEANUP_ERROR: filename={filename}, error={str(e)}")
+            print(f"Error limpiando bloques temporales: {str(e)}")
             
     def list_files(self):
         """Solicita lista de archivos disponibles"""
         if not self.connect():
-                return []
+            return []
             
         try:
-            # Enviar solicitud
+            print("Solicitando lista de archivos...")
             self.socket.send(Command.LIST_FILES.to_bytes())
             
             size_bytes = self.socket.recv(4)
@@ -271,18 +257,17 @@ class FileClient:
                 block_name_bytes = self.socket.recv(size)
                 block_name = block_name_bytes.decode('utf-8')
                 
-                # Recibir tamaño
                 size_bytes = self.socket.recv(4)
                 block_size = int.from_bytes(size_bytes, 'big')
                 available_blocks.append((block_name, block_size))
 
-            print(f"FILES_LIST_RECEIVED: files_count={len(available_blocks)}")
+            print(f"Lista de archivos recibida: {len(available_blocks)} archivos")
             
             self.disconnect()
             return available_blocks
             
         except Exception as e:
-            print(f"LIST_FILES_ERROR: error={str(e)}")
+            print(f"Error obteniendo lista de archivos: {str(e)}")
             self.disconnect()
             return []
     
@@ -290,5 +275,4 @@ class FileClient:
         """Cierra la conexión"""
         if self.socket:
             self.socket.close()
-            
-            print(f"CLIENT_DISCONNECTED: host={self.host_server}, port={self.port_server}")
+            print("Desconectado del servidor")

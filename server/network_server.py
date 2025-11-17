@@ -39,11 +39,20 @@ class NetworkServer:
         client_thread.start()
 
     def _client_session(self, client_socket: socket.socket, addr):
-        """Maneja la sesión de un cliente específico"""
+        """Maneja la sesión de un cliente específico - UNA OPERACIÓN POR CONEXIÓN"""
         try:
-            client_socket.settimeout(10.0)
-            self._process_client_commands(client_socket, addr)
+            client_socket.settimeout(30.0)
+
+            command_bytes = client_socket.recv(4)
             
+            # Si no hay datos, el cliente cerró la conexión
+            if not command_bytes:
+                print(f"Cliente {addr} cerró la conexión sin enviar comando")
+                return
+
+            # Procesar el comando (ESTE DEBE MANEJAR TODA LA OPERACIÓN)
+            self._execute_command(client_socket, addr, command_bytes)
+                    
         except socket.timeout:
             print(f"Timeout con cliente {addr} - Cerrando conexión")
         except Exception as e:
@@ -53,20 +62,6 @@ class NetworkServer:
             print(f"CLIENT_DISCONNECTED: client_address={addr[0]}, client_port={addr[1]}")
             print(f"Cliente {addr} desconectado")
 
-    def _process_client_commands(self, client_socket: socket.socket, addr):
-        """Procesa los comandos de un cliente en loop"""
-        while True:
-            command_bytes = client_socket.recv(4)
-            
-            # Cliente cerró la conexión
-            if not command_bytes:
-                print(f"Cliente {addr} cerró la conexión")
-                break
-
-            # Procesar comando
-            if not self._execute_command(client_socket, addr, command_bytes):
-                break
-
     def _execute_command(self, client_socket: socket.socket, addr, command_bytes):
         """Ejecuta un comando específico"""
         try:
@@ -74,14 +69,11 @@ class NetworkServer:
             print(f"Comando de {addr}: {command.name}")
 
             self.command_handler.handle_command(client_socket, command)
-            return True
             
         except ValueError as e:
             print(f"Comando inválido de {addr}: {e}")
-            return False
         except Exception as e:
             print(f"Error ejecutando comando de {addr}: {e}")
-            return False
 
     def stop(self):
         """Detiene el servidor"""
