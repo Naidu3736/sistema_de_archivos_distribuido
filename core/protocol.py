@@ -15,3 +15,20 @@ class Command(Enum):
         value = int.from_bytes(bytes_data, 'big')
 
         return Command(value)
+
+class Response(Enum):
+    SUCCESS = 1
+    FAILURE = 2
+    UPLOAD_COMPLETE = 3
+    DOWNLOAD_COMPLETE = 4
+    FILE_NOT_FOUND = 5
+    INVALID_COMMAND = 6
+    SERVER_ERROR = 7
+    
+    def to_bytes(self):
+        return self.value.to_bytes(4, 'big')
+    
+    @staticmethod
+    def from_bytes(bytes_data):
+        value = int.from_bytes(bytes_data, 'big')
+        return Response(value)
