@@ -219,7 +219,7 @@ class FileClient:
         for i, block in enumerate(blocks):
             # Recibir tamaño del bloque
             block_size_bytes = self.socket.recv(8)
-            block_size = int.from_bytes(block_size_bytes, 'big')  # Corregí variable
+            block_size = int.from_bytes(block_size_bytes, 'big')
             
             block_path = os.path.join(sub_dir_path, block)
             

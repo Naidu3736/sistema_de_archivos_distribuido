@@ -2,14 +2,14 @@
 import socket
 import threading
 from core.event_manager import event_manager
-from core.file_server import FileServer
+from server.file_server import FileServer
 
 class NetworkServer:
     def __init__(self, host='0.0.0.0', port=8001):
         self.host = host
         self.port = port
         self.socket = None
-        self.file_server = FileServer()  # ✅ Agregar FileServer
+        self.file_server = FileServer()
     
     def start(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
