@@ -1,4 +1,4 @@
-# client_main_simple.py
+# client_main_real.py
 import time
 import os
 from core.event_manager import event_manager
@@ -52,8 +52,8 @@ def simple_client_logger(event):
 event_manager.subscribe(simple_client_logger)
 
 def upload_multiple_files(client, files_to_upload):
-    """Sube múltiples archivos al servidor"""
-    print(f"\n--- SUBIENDO {len(files_to_upload)} ARCHIVOS ---")
+    """Sube múltiples archivos REALES al servidor"""
+    print(f"\n--- SUBIENDO {len(files_to_upload)} ARCHIVOS REALES ---")
     
     for i, file_info in enumerate(files_to_upload, 1):
         file_path = file_info['path']
@@ -61,67 +61,36 @@ def upload_multiple_files(client, files_to_upload):
         
         print(f"\n📁 [{i}/{len(files_to_upload)}] Procesando: {filename}")
         
-        # Simular upload del archivo
-        event_manager.publish('UPLOAD_START', {
-            'filename': filename, 
-            'file_size': file_info['size'],
-            'file_index': i,
-            'total_files': len(files_to_upload)
-        })
+        # Verificar que el archivo existe
+        if not os.path.exists(file_path):
+            print(f"❌ El archivo no existe: {file_path}")
+            continue
         
-        # Simular progreso de upload
-        for progress in [10, 30, 60, 90, 100]:
-            time.sleep(0.2)
-            event_manager.publish('UPLOAD_PROGRESS', {
-                'filename': filename,
-                'progress': progress,
-                'file_index': i,
-                'total_files': len(files_to_upload)
-            })
+        # SUBIR ARCHIVO REAL
+        success = client.upload_file(file_path)
         
-        event_manager.publish('UPLOAD_COMPLETE', {
-            'filename': filename,
-            'blocks_count': file_info.get('blocks', 3),
-            'file_index': i,
-            'total_files': len(files_to_upload)
-        })
+        if success:
+            print(f"✅ Archivo subido exitosamente: {filename}")
+        else:
+            print(f"❌ Error subiendo archivo: {filename}")
         
-        time.sleep(0.5)  # Pequeña pausa entre archivos
+        time.sleep(1)  # Pequeña pausa entre archivos
 
 def download_specific_file(client, filename, save_path):
-    """Descarga un archivo específico del servidor"""
-    print(f"\n--- DESCARGANDO ARCHIVO ESPECÍFICO ---")
+    """Descarga un archivo REAL del servidor"""
+    print(f"\n--- DESCARGANDO ARCHIVO REAL ---")
     print(f"🎯 Objetivo: {filename}")
     
-    # Simular descarga
-    event_manager.publish('DOWNLOAD_START', {
-        'filename': filename,
-        'save_path': save_path
-    })
+    # DESCARGAR ARCHIVO REAL
+    success = client.download_file(filename, save_path)
     
-    # Simular recepción de bloques
-    blocks_count = 4  # Simular que tiene 4 bloques
-    for i in range(blocks_count):
-        time.sleep(0.3)
-        event_manager.publish('BLOCK_RECEIVED', {
-            'filename': filename,
-            'block_name': f'{filename}_block_{i+1:03d}.bin',
-            'block_index': i+1,
-            'total_blocks': blocks_count
-        })
-    
-    event_manager.publish('FILE_RECONSTRUCTION_COMPLETE', {
-        'filename': filename,
-        'file_path': os.path.join(save_path, filename)
-    })
-    
-    event_manager.publish('DOWNLOAD_COMPLETE', {
-        'filename': filename,
-        'blocks_count': blocks_count
-    })
+    if success:
+        print(f"✅ Archivo descargado exitosamente: {filename}")
+    else:
+        print(f"❌ Error descargando archivo: {filename}")
 
 def main():
-    print("🚀 Cliente DFS - Múltiples Archivos")
+    print("🚀 Cliente DFS - Archivos REALES")
     
     # Crear cliente
     client = FileClient(host_server="192.168.101.9", port_server=8001)
@@ -130,39 +99,56 @@ def main():
     if client.connect():
         print("✅ Conectado al servidor")
         
-        # Lista de archivos a subir
+        # Lista de archivos REALES a subir
         files_to_upload = [
-            {'path': '/ruta/video1.mp4', 'name': 'vacaciones.mp4', 'size': 15000000, 'blocks': 15},
-            {'path': '/ruta/documento1.pdf', 'name': 'informe_final.pdf', 'size': 2500000, 'blocks': 3},
-            {'path': '/ruta/imagen1.jpg', 'name': 'foto_perfil.jpg', 'size': 800000, 'blocks': 1},
-            {'path': '/ruta/audio1.mp3', 'name': 'podcast_entrevista.mp3', 'size': 5000000, 'blocks': 5}
+            {'path': 'D:/Irvin/Videos/deseo.mp4', 'name': 'deseo.mp4'},
+            {'path': 'D:/Irvin/Videos/sketchboo1.mp4', 'name': 'sketchboo1.mp4'},
+            {'path': 'D:/Irvin/Documents/Manga/Monster/Monster The Perfect Edition 01 (#001-016).cbr', 'name': 'monster_vol1.cbr'}
         ]
         
-        # 1. Subir múltiples archivos
+        # 1. Subir múltiples archivos REALES
         upload_multiple_files(client, files_to_upload)
         
-        time.sleep(1)
+        time.sleep(2)
         
-        # 2. Descargar un archivo específico de los que subimos
-        file_to_download = "informe_final.pdf"  # Elegimos uno de los archivos subidos
+        # 2. Descargar un archivo REAL de los que subimos
+        file_to_download = "deseo.mp4"  # Elegimos uno de los archivos que acabamos de subir
         download_folder = "./descargas/"
+        
+        # Crear directorio de descargas si no existe
+        os.makedirs(download_folder, exist_ok=True)
         
         download_specific_file(client, file_to_download, download_folder)
         
-        # 3. Opcional: Listar archivos disponibles (si implementas esta función)
-        print(f"\n--- ARCHIVOS DISPONIBLES ---")
-        available_files = ["vacaciones.mp4", "informe_final.pdf", "foto_perfil.jpg", "podcast_entrevista.mp3"]
-        for i, filename in enumerate(available_files, 1):
-            print(f"   {i}. {filename}")
+        # 3. Opcional: Intentar listar archivos disponibles
+        print(f"\n--- INTENTANDO LISTAR ARCHIVOS ---")
+        try:
+            available_files = client.list_files()
+            if available_files:
+                print("📁 Archivos disponibles en el servidor:")
+                for i, (filename, size) in enumerate(available_files, 1):
+                    print(f"   {i}. {filename} ({size} bytes)")
+            else:
+                print("ℹ️  No se pudieron obtener archivos o la función no está implementada")
+        except Exception as e:
+            print(f"ℹ️  Listado de archivos no disponible: {e}")
         
         # Desconectar
         time.sleep(1)
         client.disconnect()
         
-        print(f"\n🎯 Resumen:")
-        print(f"   📤 Archivos subidos: {len(files_to_upload)}")
-        print(f"   📥 Archivo descargado: {file_to_download}")
+        print(f"\n🎯 Resumen REAL:")
+        print(f"   📤 Archivos intentados subir: {len(files_to_upload)}")
+        print(f"   📥 Archivo intentado descargar: {file_to_download}")
         print(f"   💾 Guardado en: {download_folder}")
+        
+        # Verificar si el archivo descargado existe
+        downloaded_file = os.path.join(download_folder, file_to_download)
+        if os.path.exists(downloaded_file):
+            file_size = os.path.getsize(downloaded_file)
+            print(f"   ✅ Archivo descargado verificado: {file_size} bytes")
+        else:
+            print(f"   ❌ Archivo descargado NO encontrado: {downloaded_file}")
         
     else:
         print("❌ No se pudo conectar al servidor")
