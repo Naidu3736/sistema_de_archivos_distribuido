@@ -1,6 +1,7 @@
 import os
 import socket
 from core.split_union import split
+from core.protocol import Response
 from core.event_manager import event_manager
 
 class FileServer:
@@ -13,16 +14,24 @@ class FileServer:
 
     def process_upload_request(self, client: socket.socket):
         """Procesa una solicitud de upload del cliente"""
-        # Recibir archivo temporal
-        temp_file_path = self._receive_temp_file(client)
+        try:
+            # Recibir archivo temporal
+            temp_file_path = self._receive_temp_file(client)
 
-        # Dividir archivo en bloques
-        blocks_info = self._split_into_blocks(temp_file_path)
+            # Dividir archivo en bloques
+            blocks_info = self._split_into_blocks(temp_file_path)
 
-        # Limpiar archivo temporal
-        self._cleanup_temp_file(temp_file_path)
+            # Limpiar archivo temporal
+            self._cleanup_temp_file(temp_file_path)
 
-        return blocks_info
+            # Enviar confirmación
+            client.send(Response.UPLOAD_COMPLETE.to_bytes())
+
+            return blocks_info
+        
+        except Exception as e:
+            client.send(Response.SERVER_ERROR.to_bytes())
+            return None
 
     def process_download_request(self, client: socket.socket):
         """Procesa una solicitud de download del cliente"""
@@ -47,8 +56,10 @@ class FileServer:
                     'error': 'File not found',
                     'client': client.getpeername()
                 })
-                client.send(b"FILE_NOT_FOUND")
+                client.send(Response.FILE_NOT_FOUND.to_bytes())
                 return
+            
+            client.send(Response.SUCCESS.to_bytes())
 
             # Obtener lista de bloques
             blocks = [f for f in os.listdir(blocks_dir) if os.path.isfile(os.path.join(blocks_dir, f))]
@@ -63,6 +74,8 @@ class FileServer:
             # Enviar bloques al cliente
             self._send_blocks_to_client(client, blocks_info)
 
+            client.send(Response.DOWNLOAD_COMPLETE.to_bytes())
+
             event_manager.publish('DOWNLOAD_COMPLETE', {
                 'filename': filename,
                 'blocks_count': len(blocks),
@@ -75,6 +88,8 @@ class FileServer:
                 'error': str(e),
                 'client': client.getpeername()
             })
+
+            client.send(Response.SERVER_ERROR.to_bytes())
 
     def _receive_temp_file(self, client: socket.socket):
         """Recibe el archivo completo del cliente"""
