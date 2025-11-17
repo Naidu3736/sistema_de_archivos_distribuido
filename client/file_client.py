@@ -1,6 +1,7 @@
 import socket
 import os
 from core.event_manager import event_manager
+from core.protocol import Command
 from core.split_union import union, clean_blocks
 
 class FileClient:
@@ -49,6 +50,9 @@ class FileClient:
             return False
             
         try:
+            # Enviar solicitud
+            self.socket.send(Command.UPLOAD.to_bytes())
+
             filename = os.path.basename(file_path)
             file_size = os.path.getsize(file_path)
             
@@ -57,9 +61,6 @@ class FileClient:
                 'file_path': file_path,
                 'file_size': file_size
             })
-
-            # Enviar solicitud
-            self.socket.send(b"UPLOAD")
             
             # Enviar metadata del archivo
             self._send_metadata_file(filename, file_size)
@@ -98,8 +99,8 @@ class FileClient:
                 'save_path': save_path
             })
             
-            # Enviar solicitud de descarga
-            self.socket.send(b"DOWNLOAD")
+            # Enviar solicitud
+            self.socket.send(Command.DOWNLOAD.to_bytes())
             
             # Enviar nombre del archivo
             filename_bytes = filename.encode('utf-8')
@@ -293,7 +294,8 @@ class FileClient:
                 return []
             
         try:
-            self.socket.send(b"LIST_FILES")
+            # Enviar solicitud
+            self.socket.send(Command.LIST_FILES.to_bytes())
             
             size_bytes = self.socket.recv(4)
             block_count = int.from_bytes(size_bytes, 'big')

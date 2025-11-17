@@ -3,6 +3,8 @@ import socket
 import threading
 from core.event_manager import event_manager
 from server.file_server import FileServer
+from server.command_handler import CommandHandler
+from core.protocol import Command
 
 class NetworkServer:
     def __init__(self, host='0.0.0.0', port=8001):
@@ -10,6 +12,7 @@ class NetworkServer:
         self.port = port
         self.socket = None
         self.file_server = FileServer()
+        self.command_handler = CommandHandler(self.file_server)
     
     def start(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -36,48 +39,15 @@ class NetworkServer:
             )
             client_thread.start()
     
-    def handle_client(self, client_socket, addr):
+    def handle_client(self, client_socket:socket.socket, addr):
         try:
-            # Recibir operación del cliente
-            operation_bytes = client_socket.recv(1024)
-            if not operation_bytes:
-                return
-                
-            operation = operation_bytes.decode('utf-8').strip()
-            
-            event_manager.publish('CLIENT_OPERATION', {
-                'client_address': addr[0],
-                'client_port': addr[1],
-                'operation': operation
-            })
-            
-            if operation == "DOWNLOAD":
-                # Recibir nombre del archivo
-                filename_size = int.from_bytes(client_socket.recv(4), 'big')
-                filename_bytes = client_socket.recv(filename_size)
-                filename = filename_bytes.decode('utf-8')
-                
-                self.file_server.process_download_request(client_socket)
-                
-            elif operation == "UPLOAD":
-                self.file_server.process_upload_request(client_socket)
-                
-            elif operation == "LIST_FILES":
-                # Por implementar
-                event_manager.publish('LIST_FILES_REQUEST', {
-                    'client_address': addr[0],
-                    'client_port': addr[1]
-                })
-                client_socket.send(b"OPERATION_NOT_IMPLEMENTED")
-                
-            else:
-                event_manager.publish('UNKNOWN_OPERATION', {
-                    'client_address': addr[0], 
-                    'client_port': addr[1],
-                    'operation': operation
-                })
-                client_socket.send(b"UNKNOWN_OPERATION")
-                
+            # Recibir comando
+            command_bytes = client_socket.recv(4)
+            command = Command.from_bytes(command_bytes)
+
+            # Delegar al CommandHandler
+            self.command_handler.handle_command(client_socket, command)
+                    
         except Exception as e:
             event_manager.publish('CLIENT_HANDLER_ERROR', {
                 'client_address': addr[0],
@@ -86,12 +56,3 @@ class NetworkServer:
             })
         finally:
             client_socket.close()
-            event_manager.publish('CLIENT_DISCONNECTED', {
-                'client_address': addr[0],
-                'client_port': addr[1]
-            })
-    
-    def stop(self):
-        if self.socket:
-            self.socket.close()
-            event_manager.publish('SERVER_STOPPED', {})
