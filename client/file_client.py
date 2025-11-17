@@ -39,7 +39,7 @@ class FileClient:
     def upload_file(self, file_path: str):
         """Sube un archivo al dfs"""
         if not self.connected:
-            if not self.connect():
+            # if not self.connect():
                 return False
          
         if not os.path.exists(file_path):
@@ -90,7 +90,7 @@ class FileClient:
     def download_file(self, filename: str, save_path: str):
         """Descarga un archivo del dfs"""
         if not self.connected:
-            if not self.connect():
+            # if not self.connect():
                 return False
             
         try:
