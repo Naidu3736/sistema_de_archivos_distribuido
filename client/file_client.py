@@ -57,6 +57,9 @@ class FileClient:
                 'file_path': file_path,
                 'file_size': file_size
             })
+
+            # Enviar solicitud
+            self.socket.send(b"UPLOAD")
             
             # Enviar metadata del archivo
             self._send_metadata_file(filename, file_size)
@@ -95,7 +98,7 @@ class FileClient:
                 'save_path': save_path
             })
             
-            # Enviar solicitud de descarga (corregí el typo "DONWLOAD")
+            # Enviar solicitud de descarga
             self.socket.send(b"DOWNLOAD")
             
             # Enviar nombre del archivo
@@ -137,7 +140,7 @@ class FileClient:
         # Enviar nombre
         self.socket.send(filename_bytes)
         
-        # Enviar tamaño del archivo (corregí a 8 bytes para archivos grandes)
+        # Enviar tamaño del archivo
         self.socket.send(file_size.to_bytes(8, 'big'))
         
         event_manager.publish('METADATA_SENT', {
@@ -166,7 +169,7 @@ class FileClient:
     def _receive_blocks_info(self):
         """Recibir información de bloques del dfs"""
         # Recibir metadata de bloques
-        # Nombre del sub-directorio (corregí int.to_bytes -> int.from_bytes)
+        # Nombre del sub-directorio
         size_bytes = self.socket.recv(4)
         size = int.from_bytes(size_bytes, 'big')
         sub_dir_bytes = self.socket.recv(size)
@@ -185,7 +188,7 @@ class FileClient:
         blocks = []
         for _ in range(blocks_count):
             size_bytes = self.socket.recv(4)
-            size = int.from_bytes(size_bytes, 'big')  # Corregí 'bit' -> 'big'
+            size = int.from_bytes(size_bytes, 'big')
             block_name_bytes = self.socket.recv(size)
             block_name = block_name_bytes.decode('utf-8')
             blocks.append(block_name)
