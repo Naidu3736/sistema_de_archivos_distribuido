@@ -56,6 +56,8 @@ class FileServer:
             client.send(Response.SUCCESS.to_bytes())
 
             blocks = [f for f in os.listdir(blocks_dir) if os.path.isfile(os.path.join(blocks_dir, f))]
+            blocks = sorted(blocks, key=lambda x: int(x.split('_')[-1].split('.')[0]))
+            
             print(f"Preparando envío de {len(blocks)} bloques...")
             
             blocks_info = {
@@ -153,20 +155,22 @@ class FileServer:
 
         client.send(len(blocks).to_bytes(4, 'big'))
 
+        # Enviar nombres de bloques
+        for block in blocks:
+            block_name_bytes = block.encode('utf-8')
+            client.send(len(block_name_bytes).to_bytes(4, 'big'))
+            client.send(block_name_bytes)
+
         print("Enviando bloques...")
         for i, block in enumerate(blocks):
-            self._send_single_block(client, block, blocks_dir, i, len(blocks))
-            print(f"Bloque {i+1}/{len(blocks)} enviado: {block}")
+            self._send_single_block(client, block, blocks_dir)
+            print(f"Bloque {i}/{len(blocks)} enviado: {block}")
 
         print(f"Envío de bloques completado: {filename}")
 
-    def _send_single_block(self, client: socket.socket, block_name: str, blocks_dir: str, block_index: int, total_blocks: int):
+    def _send_single_block(self, client: socket.socket, block_name: str, blocks_dir: str):
         """Envía un solo bloque al cliente"""
         block_path = os.path.join(blocks_dir, block_name)
-
-        block_name_bytes = block_name.encode('utf-8')
-        client.send(len(block_name_bytes).to_bytes(4, 'big'))
-        client.send(block_name_bytes)
 
         block_size = os.path.getsize(block_path)
         client.send(block_size.to_bytes(8, 'big'))
@@ -177,5 +181,3 @@ class FileServer:
                 chunk = f.read(self.BUFFER_SIZE)
                 client.send(chunk)
                 bytes_sent += len(chunk)
-
-        print(f"Bloque {block_index + 1}/{total_blocks} completado: {block_name} ({block_size} bytes)")
