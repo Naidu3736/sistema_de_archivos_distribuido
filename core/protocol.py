@@ -6,6 +6,8 @@ class Command(Enum):
     LIST_FILES = 3
     DELETE = 4
     INFO = 5
+    FILE_INFO = 6
+    STORAGE_STATUS = 7
 
     def to_bytes(self):
         return self.value.to_bytes(4, 'big')
@@ -13,7 +15,6 @@ class Command(Enum):
     @staticmethod
     def from_bytes(bytes_data):
         value = int.from_bytes(bytes_data, 'big')
-
         return Command(value)
 
 class Response(Enum):
@@ -24,6 +25,8 @@ class Response(Enum):
     FILE_NOT_FOUND = 5
     INVALID_COMMAND = 6
     SERVER_ERROR = 7
+    DELETE_COMPLETE = 8
+    FILE_ALREADY_EXISTS = 9
     
     def to_bytes(self):
         return self.value.to_bytes(4, 'big')

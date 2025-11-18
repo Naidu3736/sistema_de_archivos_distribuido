@@ -1,6 +1,6 @@
-from core.protocol import Command
-from server.file_server import FileServer
 import socket
+from core.protocol import Command, Response
+from server.file_server import FileServer
 
 class CommandHandler:
     def __init__(self, file_server:FileServer):
@@ -8,38 +8,21 @@ class CommandHandler:
 
     def handle_command(self, client_socket: socket.socket, command: Command):
         """Despacha el comando a la función correspondiente"""
-        if command == Command.UPLOAD:
-            self._handle_upload(client_socket)
-        elif command == Command.DOWNLOAD:
-            self._handle_download(client_socket)
-        elif command == Command.LIST_FILES:
-            self._handle_list_files(client_socket)
-        elif command == Command.DELETE:
-            self._handle_delete(client_socket)
-        elif command == Command.INFO:
-            self._handle_info(client_socket)
-        else:
-            self._handle_unknown(client_socket)
-
-
-    def _handle_upload(self, client_socke:socket.socket):
-        """ Logica específica para upload """
-        # Procesar solicitud
-        self.file_server.process_upload_request(client_socke)
-
-    def _handle_download(self, client_socket:socket.socket):
-        """ Lógicas específica para download """
-        # Procesar solicitud
-        self.file_server.process_download_request(client_socket)
-
-    def _handle_list_files(self, client_socket:socket.socket):
-        pass
-
-    def _handle_delete(self, client_socket:socket.socket):
-        pass
-
-    def _handle_info(self, client_socket:socket.socket):
-        pass
-
-    def _handle_unknown(self, client_socket:socket.socket):
-        pass
+        try:
+            if command == Command.UPLOAD:
+                self.file_server.process_upload_request(client_socket)
+            elif command == Command.DOWNLOAD:
+                self.file_server.process_download_request(client_socket)
+            elif command == Command.LIST_FILES:
+                self.file_server.process_list_request(client_socket)
+            elif command == Command.DELETE:
+                self.file_server.process_delete_request(client_socket)
+            elif command == Command.INFO:
+                self.file_server.process_info_request(client_socket)
+            elif command == Command.STORAGE_STATUS:
+                self.file_server.process_storage_status_request(client_socket)
+            else:
+                client_socket.send(Response.INVALID_COMMAND.to_bytes())
+        except Exception as e:
+            print(f"Error manejando comando {command}: {str(e)}")
+            client_socket.send(Response.SERVER_ERROR.to_bytes())

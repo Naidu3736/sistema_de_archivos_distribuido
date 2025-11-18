@@ -1,5 +1,6 @@
 import socket
 import os
+import json
 from core.protocol import Command, Response
 from core.split_union import union, clean_blocks
 
@@ -53,6 +54,10 @@ class FileClient:
                 print(f"Subida completada: {filename}")
                 self.disconnect()
                 return True
+            elif response == Response.FILE_ALREADY_EXISTS:
+                print(f"Error: El archivo ya existe en el servidor - {filename}")
+                self.disconnect()
+                return False
             else:
                 print(f"Error en subida: {response}")
                 self.disconnect()
@@ -91,7 +96,7 @@ class FileClient:
                 return False
             
             print("Preparando recepción de bloques...")
-            blocks_info = self._receive_block_from_dfs()
+            blocks_info = self._receive_blocks_info()
             
             print("Reconstruyendo archivo...")
             self._reconstruct_file(blocks_info, save_path)
@@ -115,6 +120,142 @@ class FileClient:
             print(f"Error durante descarga: {str(e)}")
             self.disconnect()
             return False
+
+    def delete_file(self, filename: str):
+        """Elimina un archivo del dfs"""
+        if not self.connect():
+            return False
+            
+        try:
+            print(f"Solicitando eliminación: {filename}")
+            
+            self.socket.send(Command.DELETE.to_bytes())
+            
+            filename_bytes = filename.encode('utf-8')
+            self.socket.send(len(filename_bytes).to_bytes(4, 'big'))
+            self.socket.send(filename_bytes)
+            
+            response_bytes = self.socket.recv(4)
+            response = Response.from_bytes(response_bytes)
+            
+            if response == Response.DELETE_COMPLETE:
+                print(f"Archivo eliminado: {filename}")
+                self.disconnect()
+                return True
+            elif response == Response.FILE_NOT_FOUND:
+                print(f"Archivo no encontrado: {filename}")
+                self.disconnect()
+                return False
+            else:
+                print(f"Error en eliminación: {response}")
+                self.disconnect()
+                return False
+            
+        except Exception as e:
+            print(f"Error durante eliminación: {str(e)}")
+            self.disconnect()
+            return False
+
+    def list_files(self):
+        """Solicita lista de archivos disponibles"""
+        if not self.connect():
+            return []
+            
+        try:
+            print("Solicitando lista de archivos...")
+            self.socket.send(Command.LIST_FILES.to_bytes())
+            
+            # Recibir tamaño de la lista JSON
+            size_bytes = self.socket.recv(4)
+            json_size = int.from_bytes(size_bytes, 'big')
+            
+            # Recibir JSON con información de archivos
+            json_data = b""
+            while len(json_data) < json_size:
+                chunk = self.socket.recv(min(self.BUFFER_SIZE, json_size - len(json_data)))
+                if not chunk:
+                    break
+                json_data += chunk
+            
+            files_info = json.loads(json_data.decode('utf-8'))
+            
+            print(f"Lista de archivos recibida: {len(files_info)} archivos")
+            
+            self.disconnect()
+            return files_info
+            
+        except Exception as e:
+            print(f"Error obteniendo lista de archivos: {str(e)}")
+            self.disconnect()
+            return []
+
+    def get_file_info(self, filename: str):
+        """Obtiene información detallada de un archivo"""
+        if not self.connect():
+            return None
+            
+        try:
+            print(f"Solicitando información de: {filename}")
+            
+            self.socket.send(Command.FILE_INFO.to_bytes())
+            
+            filename_bytes = filename.encode('utf-8')
+            self.socket.send(len(filename_bytes).to_bytes(4, 'big'))
+            self.socket.send(filename_bytes)
+            
+            # Recibir tamaño de la respuesta JSON
+            size_bytes = self.socket.recv(4)
+            json_size = int.from_bytes(size_bytes, 'big')
+            
+            # Recibir JSON con información del archivo
+            json_data = b""
+            while len(json_data) < json_size:
+                chunk = self.socket.recv(min(self.BUFFER_SIZE, json_size - len(json_data)))
+                if not chunk:
+                    break
+                json_data += chunk
+            
+            file_info = json.loads(json_data.decode('utf-8'))
+            
+            self.disconnect()
+            return file_info
+            
+        except Exception as e:
+            print(f"Error obteniendo información del archivo: {str(e)}")
+            self.disconnect()
+            return None
+
+    def get_storage_status(self):
+        """Obtiene el estado del almacenamiento del servidor"""
+        if not self.connect():
+            return None
+            
+        try:
+            print("Solicitando estado del almacenamiento...")
+            
+            self.socket.send(Command.STORAGE_STATUS.to_bytes())
+            
+            # Recibir tamaño de la respuesta JSON
+            size_bytes = self.socket.recv(4)
+            json_size = int.from_bytes(size_bytes, 'big')
+            
+            # Recibir JSON con estado
+            json_data = b""
+            while len(json_data) < json_size:
+                chunk = self.socket.recv(min(self.BUFFER_SIZE, json_size - len(json_data)))
+                if not chunk:
+                    break
+                json_data += chunk
+            
+            status_info = json.loads(json_data.decode('utf-8'))
+            
+            self.disconnect()
+            return status_info
+            
+        except Exception as e:
+            print(f"Error obteniendo estado del almacenamiento: {str(e)}")
+            self.disconnect()
+            return None
 
     def _send_metadata_file(self, filename: str, file_size: int):
         """Envía metadata del archivo al dfs"""
@@ -229,6 +370,9 @@ class FileClient:
         try:
             clean_blocks(blocks, sub_dir_path)
             
+            # Eliminar directorio temporal si está vacío
+            if os.path.exists(sub_dir_path) and not os.listdir(sub_dir_path):
+                os.rmdir(sub_dir_path)
             if os.path.exists(self.temp_dir) and not os.listdir(self.temp_dir):
                 os.rmdir(self.temp_dir)
             
@@ -237,42 +381,9 @@ class FileClient:
         except Exception as e:
             print(f"Error limpiando bloques temporales: {str(e)}")
             
-    def list_files(self):
-        """Solicita lista de archivos disponibles"""
-        if not self.connect():
-            return []
-            
-        try:
-            print("Solicitando lista de archivos...")
-            self.socket.send(Command.LIST_FILES.to_bytes())
-            
-            size_bytes = self.socket.recv(4)
-            block_count = int.from_bytes(size_bytes, 'big')
-            
-            available_blocks = []  
-            
-            for _ in range(block_count):
-                size_bytes = self.socket.recv(4)
-                size = int.from_bytes(size_bytes, 'big')
-                block_name_bytes = self.socket.recv(size)
-                block_name = block_name_bytes.decode('utf-8')
-                
-                size_bytes = self.socket.recv(4)
-                block_size = int.from_bytes(size_bytes, 'big')
-                available_blocks.append((block_name, block_size))
-
-            print(f"Lista de archivos recibida: {len(available_blocks)} archivos")
-            
-            self.disconnect()
-            return available_blocks
-            
-        except Exception as e:
-            print(f"Error obteniendo lista de archivos: {str(e)}")
-            self.disconnect()
-            return []
-    
     def disconnect(self):
         """Cierra la conexión"""
         if self.socket:
             self.socket.close()
+            self.socket = None
             print("Desconectado del servidor")
