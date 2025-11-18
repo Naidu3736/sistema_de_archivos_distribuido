@@ -1,4 +1,3 @@
-# servidor/network_server.py
 import socket
 import threading
 from server.file_server import FileServer
@@ -10,6 +9,7 @@ class NetworkServer:
         self.host = host
         self.port = port
         self.socket = None
+        self.running = False
         self.file_server = FileServer()
         self.command_handler = CommandHandler(self.file_server)
     
@@ -17,13 +17,30 @@ class NetworkServer:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind((self.host, self.port))
         self.socket.listen(5)
+        self.socket.settimeout(1.0)
+
+        self.running = True
         
         print(f"SERVER_STARTED: host={self.host}, port={self.port}")
         print(f"Servidor escuchando en {self.host}:{self.port}")
         
-        while True:
-            client_socket, addr = self.socket.accept()
-            self._handle_new_client(client_socket, addr)
+        while self.running:
+            try:
+                client_socket, addr = self.socket.accept()
+                self._handle_new_client(client_socket, addr)
+            
+            except socket.timeout:
+                # Timeout normal, verificar si debemos continuar
+                continue
+            except OSError as e:
+                # Error cuando el socket se cierra durante accept()
+                if self.running:
+                    print(f"Error aceptando conexión: {e}")
+                break
+            except Exception as e:
+                print(f"Error inesperado: {e}")
+                break
+                
     
     def _handle_new_client(self, client_socket: socket.socket, addr):
         """Maneja una nueva conexión de cliente"""

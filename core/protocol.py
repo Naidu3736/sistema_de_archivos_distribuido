@@ -5,9 +5,8 @@ class Command(Enum):
     DOWNLOAD = 2
     LIST_FILES = 3
     DELETE = 4
-    INFO = 5
-    FILE_INFO = 6
-    STORAGE_STATUS = 7
+    FILE_INFO = 5
+    STORAGE_STATUS = 6
 
     def to_bytes(self):
         return self.value.to_bytes(4, 'big')

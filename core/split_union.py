@@ -1,4 +1,3 @@
-# split_union.py
 import os
 
 SIZE_BUFFER = 4096  # 4KB por chunk
