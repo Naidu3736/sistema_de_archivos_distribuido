@@ -2,8 +2,10 @@ import os
 import pickle
 
 class BlockTable:
-    def __init__(self, total_blocks: int = 1000):
+    def __init__(self, total_blocks: int = 1000, data_dir: str = "data"):
         self.total_blocks = total_blocks
+        self.data_dir = data_dir
+        os.makedirs(data_dir, exist_ok=True)
         self.entries = [0] * total_blocks
         self.free_blocks = list(range(total_blocks))
 

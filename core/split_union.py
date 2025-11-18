@@ -19,17 +19,17 @@ def split(file_path: str, output_dir: str = "blocks") -> list:
         with open(file_path, "rb") as file_in:
             current_part = 0
             bytes_written = 0
-            current_block_data = b''  # Acumulador de datos del bloque actual
+            current_block_data = b''
             
             while True:
                 chunk = file_in.read(SIZE_BUFFER)
                 if not chunk:  # Fin del archivo
                     break
                 
-                # Si agregar este chunk excede el tamaño del bloque Y ya hemos escrito algo
-                if len(current_block_data) + len(chunk) > BLOCK_SIZE and bytes_written > 0:
+                # Si agregar este chunk excede el tamaño del bloque
+                if len(current_block_data) + len(chunk) > BLOCK_SIZE:
                     # Guardar bloque actual
-                    block_filename = f"{file_name}_block_{current_part}.bin"
+                    block_filename = f"block_{current_part}.bin"
                     block_filepath = os.path.join(output_dir, block_filename)
                     
                     with open(block_filepath, "wb") as block_file:
@@ -48,7 +48,7 @@ def split(file_path: str, output_dir: str = "blocks") -> list:
             
             # Guardar el último bloque si queda data
             if current_block_data:
-                block_filename = f"{file_name}_block_{current_part}.bin"
+                block_filename = f"block_{current_part}.bin"
                 block_filepath = os.path.join(output_dir, block_filename)
                 
                 with open(block_filepath, "wb") as block_file:
