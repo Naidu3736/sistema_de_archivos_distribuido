@@ -43,6 +43,12 @@ class FileServer:
             # Fase 1: Recepción del archivo temporal
             file_metadata = self._receive_temp_file(client)
 
+            if not file_metadata:
+                logger.log("UPLOAD", "El archivo excede la capacidad actual del sistema")
+                client.send(Response.STORAGE_FULL.to_bytes())
+                return None
+            
+            client.send(Response.SUCCESS.to_bytes())
             filename, file_size, temp_file_path = file_metadata
             
             # Fase 2: Verificación de existencia
@@ -50,7 +56,7 @@ class FileServer:
                 client.send(Response.FILE_ALREADY_EXISTS.to_bytes())
                 self._cleanup_temp_file(temp_file_path)
                 return None
-
+            
             # Fase 3: Procesamiento y almacenamiento
             file_id = self.file_table.create_file(filename, file_size)
             blocks_info = self._process_file_blocks(temp_file_path, file_id)
@@ -176,6 +182,12 @@ class FileServer:
         filename = self._receive_file_metadata(client)
         file_size = self._receive_file_size(client)
         
+        import math
+        required_blocks = math.ceil(file_size / self.BLOCK_SIZE)
+        if not self.block_table.has_available_blocks(required_blocks):
+            logger.log("UPLOAD", f"No hay bloques suficientes. Requeridos: {required_blocks}, Disponibles: {len(self.block_table.available_blocks)}")
+            return None
+
         logger.log("SERVER", f'Recibiendo: {filename} ({file_size} bytes)')
 
         # Recepción del contenido
@@ -209,7 +221,6 @@ class FileServer:
                 f.write(chunk)
                 bytes_received += len(chunk)
 
-                logger.log("DEBUG:", "Estoy acá")
                 # Mostrar progreso cada 1MB
                 self._show_download_progress(bytes_received, file_size)
 

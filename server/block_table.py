@@ -198,10 +198,4 @@ class BlockTable:
     
     def has_available_blocks(self, required_blocks: int) -> bool:
         """Verifica si hay suficientes bloques disponibles"""
-        available = 0
-        for block in self.blocks:
-            if block['file_id'] is None:
-                available += 1
-                if available >= required_blocks:
-                    return True
-        return False
+        return len(self.available_blocks) >= required_blocks
