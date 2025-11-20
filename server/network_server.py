@@ -3,6 +3,7 @@ import threading
 from server.file_server import FileServer
 from server.command_handler import CommandHandler
 from core.protocol import Command
+from core.logger import logger
 
 class NetworkServer:
     def __init__(self, host='0.0.0.0', port=8001):
@@ -21,8 +22,8 @@ class NetworkServer:
 
         self.running = True
         
-        print(f"SERVER_STARTED: host={self.host}, port={self.port}")
-        print(f"Servidor escuchando en {self.host}:{self.port}")
+        logger.log("SERVER", f"SERVER_STARTED: host={self.host}, port={self.port}")
+        logger.log("SERVER", f"Servidor escuchando en {self.host}:{self.port}")
         
         while self.running:
             try:
@@ -35,17 +36,17 @@ class NetworkServer:
             except OSError as e:
                 # Error cuando el socket se cierra durante accept()
                 if self.running:
-                    print(f"Error aceptando conexión: {e}")
+                    logger.log("SERVER", f"Error aceptando conexión: {e}")
                 break
             except Exception as e:
-                print(f"Error inesperado: {e}")
+                logger.log("SERVER", f"Error inesperado: {e}")
                 break
                 
     
     def _handle_new_client(self, client_socket: socket.socket, addr):
         """Maneja una nueva conexión de cliente"""
-        print(f"CLIENT_CONNECTED: client_address={addr[0]}, client_port={addr[1]}")
-        print(f"Nuevo cliente conectado: {addr[0]}:{addr[1]}")
+        logger.log("NETWORK", f"CLIENT_CONNECTED: client_address={addr[0]}, client_port={addr[1]}")
+        logger.log("NETWORK", f"Nuevo cliente conectado: {addr[0]}:{addr[1]}")
         
         # Manejar cliente en hilo separado
         client_thread = threading.Thread(
@@ -58,42 +59,42 @@ class NetworkServer:
     def _client_session(self, client_socket: socket.socket, addr):
         """Maneja la sesión de un cliente específico - UNA OPERACIÓN POR CONEXIÓN"""
         try:
-            client_socket.settimeout(30.0)
+            client_socket.settimeout(10.0)
 
             command_bytes = client_socket.recv(4)
             
             # Si no hay datos, el cliente cerró la conexión
             if not command_bytes:
-                print(f"Cliente {addr} cerró la conexión sin enviar comando")
+                logger.log("NETWORK", f"Cliente {addr} cerró la conexión sin enviar comando")
                 return
 
             # Procesar el comando (ESTE DEBE MANEJAR TODA LA OPERACIÓN)
             self._execute_command(client_socket, addr, command_bytes)
                     
         except socket.timeout:
-            print(f"Timeout con cliente {addr} - Cerrando conexión")
+            logger.log("NETWORK", f"Timeout con cliente {addr} - Cerrando conexión")
         except Exception as e:
-            print(f"Error en sesión con cliente {addr}: {str(e)}")
+            logger.log("NETWORK", f"Error en sesión con cliente {addr}: {str(e)}")
         finally:
             client_socket.close()
-            print(f"CLIENT_DISCONNECTED: client_address={addr[0]}, client_port={addr[1]}")
-            print(f"Cliente {addr} desconectado")
+            logger.log("NETWORK", f"CLIENT_DISCONNECTED: client_address={addr[0]}, client_port={addr[1]}")
+            logger.log("NETWORK", f"Cliente {addr} desconectado")
 
     def _execute_command(self, client_socket: socket.socket, addr, command_bytes):
         """Ejecuta un comando específico"""
         try:
             command = Command.from_bytes(command_bytes)
-            print(f"Comando de {addr}: {command.name}")
+            logger.log("COMMAND", f"Comando de {addr}: {command.name}")
 
             self.command_handler.handle_command(client_socket, command)
             
         except ValueError as e:
-            print(f"Comando inválido de {addr}: {e}")
+            logger.log("COMMAND", f"Comando inválido de {addr}: {e}")
         except Exception as e:
-            print(f"Error ejecutando comando de {addr}: {e}")
+            logger.log("COMMAND", f"Error ejecutando comando de {addr}: {e}")
 
     def stop(self):
         """Detiene el servidor"""
         if self.socket:
             self.socket.close()
-            print("Servidor detenido")
+            logger.log("SERVER", "Servidor detenido")

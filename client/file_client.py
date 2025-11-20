@@ -3,6 +3,7 @@ import os
 import json
 from core.protocol import Command, Response
 from core.split_union import union, clean_blocks
+from core.logger import logger
 
 class FileClient:
     def __init__(self, host_server: str = "0.0.0.0", port_server: int = 8001, buffer_size: int = 4096):
@@ -17,7 +18,7 @@ class FileClient:
         
         # Crear directorio temporal para operaciones
         os.makedirs(self.temp_dir, exist_ok=True)
-        print(f"Cliente de archivos configurado - Servidor: {host_server}:{port_server}")
+        logger.log("CLIENT", f"Cliente de archivos configurado - Servidor: {host_server}:{port_server}")
     
     # =========================================================================
     # GESTIÓN DE CONEXIÓN Y DESCONEXIÓN
@@ -29,10 +30,10 @@ class FileClient:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host_server, self.port_server))
             
-            print(f"Conectado al servidor {self.host_server}:{self.port_server}")
+            logger.log("CLIENT", f"Conectado al servidor {self.host_server}:{self.port_server}")
             return True
         except Exception as e:
-            print(f"Error de conexión: {str(e)}")
+            logger.log("CLIENT", f"Error de conexión: {str(e)}")
             return False
 
     def disconnect(self):
@@ -40,7 +41,7 @@ class FileClient:
         if self.socket:
             self.socket.close()
             self.socket = None
-            print("Desconectado del servidor")
+            logger.log("CLIENT", "Desconectado del servidor")
 
     # =========================================================================
     # OPERACIONES PRINCIPALES CON ARCHIVOS
@@ -56,24 +57,24 @@ class FileClient:
             return False
             
         try:
-            print("Iniciando subida de archivo...")
+            logger.log("UPLOAD", "Iniciando subida de archivo...")
             
             # Fase 1: Envío de comando y metadatos
             self._send_command(Command.UPLOAD)
             filename = os.path.basename(file_path)
             file_size = os.path.getsize(file_path)
             
-            print(f"Subiendo archivo: {filename} ({file_size} bytes)")
+            logger.log("UPLOAD", f"Subiendo archivo: {filename} ({file_size} bytes)")
             self._send_file_metadata(filename, file_size)
             
             # Fase 2: Envío del contenido
             self._send_file_content(file_path, file_size)
-            
+        
             # Fase 3: Verificación de respuesta
             return self._handle_upload_response(filename)
         
         except Exception as e:
-            print(f"Error durante subida: {str(e)}")
+            logger.log("UPLOAD", f"Error durante subida: {str(e)}")
             self.disconnect()
             return False
 
@@ -83,7 +84,7 @@ class FileClient:
             return False
             
         try:
-            print(f"Solicitando descarga: {filename}")
+            logger.log("DOWNLOAD", f"Solicitando descarga: {filename}")
             
             # Fase 1: Solicitud de descarga
             self._send_command(Command.DOWNLOAD)
@@ -94,7 +95,7 @@ class FileClient:
                 return False
             
             # Fase 3: Recepción y reconstrucción
-            print("Preparando recepción de bloques...")
+            logger.log("DOWNLOAD", "Preparando recepción de bloques...")
             blocks_info = self._receive_blocks_from_server()
             
             # Fase 4: Procesamiento del archivo
@@ -104,7 +105,7 @@ class FileClient:
             return success
             
         except Exception as e:
-            print(f"Error durante descarga: {str(e)}")
+            logger.log("DOWNLOAD", f"Error durante descarga: {str(e)}")
             self.disconnect()
             return False
 
@@ -114,7 +115,7 @@ class FileClient:
             return False
             
         try:
-            print(f"Solicitando eliminación: {filename}")
+            logger.log("DELETE", f"Solicitando eliminación: {filename}")
             
             # Fase 1: Envío de solicitud
             self._send_command(Command.DELETE)
@@ -124,20 +125,20 @@ class FileClient:
             response = self._receive_response()
             
             if response == Response.DELETE_COMPLETE:
-                print(f"Archivo eliminado: {filename}")
+                logger.log("DELETE", f"Archivo eliminado: {filename}")
                 self.disconnect()
                 return True
             elif response == Response.FILE_NOT_FOUND:
-                print(f"Archivo no encontrado: {filename}")
+                logger.log("DELETE", f"Archivo no encontrado: {filename}")
                 self.disconnect()
                 return False
             else:
-                print(f"Error en eliminación: {response}")
+                logger.log("DELETE", f"Error en eliminación: {response}")
                 self.disconnect()
                 return False
             
         except Exception as e:
-            print(f"Error durante eliminación: {str(e)}")
+            logger.log("DELETE", f"Error durante eliminación: {str(e)}")
             self.disconnect()
             return False
 
@@ -151,7 +152,7 @@ class FileClient:
             return []
             
         try:
-            print("Solicitando lista de archivos...")
+            logger.log("LIST", "Solicitando lista de archivos...")
             
             # Fase 1: Envío de comando
             self._send_command(Command.LIST_FILES)
@@ -159,12 +160,12 @@ class FileClient:
             # Fase 2: Recepción y procesamiento de datos
             files_info = self._receive_json_response()
             
-            print(f"Lista de archivos recibida: {len(files_info)} archivos")
+            logger.log("LIST", f"Lista de archivos recibida: {len(files_info)} archivos")
             self.disconnect()
             return files_info
             
         except Exception as e:
-            print(f"Error obteniendo lista de archivos: {str(e)}")
+            logger.log("LIST", f"Error obteniendo lista de archivos: {str(e)}")
             self.disconnect()
             return []
 
@@ -174,7 +175,7 @@ class FileClient:
             return None
             
         try:
-            print(f"Solicitando información de: {filename}")
+            logger.log("INFO", f"Solicitando información de: {filename}")
             
             # Fase 1: Envío de solicitud
             self._send_command(Command.FILE_INFO)
@@ -187,7 +188,7 @@ class FileClient:
             return file_info
             
         except Exception as e:
-            print(f"Error obteniendo información del archivo: {str(e)}")
+            logger.log("INFO", f"Error obteniendo información del archivo: {str(e)}")
             self.disconnect()
             return None
 
@@ -197,7 +198,7 @@ class FileClient:
             return None
             
         try:
-            print("Solicitando estado del almacenamiento...")
+            logger.log("STATUS", "Solicitando estado del almacenamiento...")
             
             # Fase 1: Envío de comando
             self._send_command(Command.STORAGE_STATUS)
@@ -209,7 +210,7 @@ class FileClient:
             return status_info
             
         except Exception as e:
-            print(f"Error obteniendo estado del almacenamiento: {str(e)}")
+            logger.log("STATUS", f"Error obteniendo estado del almacenamiento: {str(e)}")
             self.disconnect()
             return None
 
@@ -268,7 +269,7 @@ class FileClient:
     def _validate_local_file(self, file_path: str):
         """Valida que el archivo local exista"""
         if not os.path.exists(file_path):
-            print(f"Error: Archivo no encontrado - {file_path}")
+            logger.log("CLIENT", f"Error: Archivo no encontrado - {file_path}")
             return False
         return True
 
@@ -277,12 +278,12 @@ class FileClient:
         response = self._receive_response()
         
         if response == Response.FILE_NOT_FOUND:
-            print(f"Archivo no encontrado en servidor: {filename}")
+            logger.log("DOWNLOAD", f"Archivo no encontrado en servidor: {filename}")
             self.disconnect()
             return False
         
         elif response != Response.SUCCESS:
-            print(f"Error del servidor: {response}")
+            logger.log("DOWNLOAD", f"Error del servidor: {response}")
             self.disconnect()
             return False
         
@@ -301,12 +302,12 @@ class FileClient:
         self.socket.send(filename_bytes)
         self.socket.send(file_size.to_bytes(8, 'big'))
         
-        print(f"Metadata enviada: {filename} - {file_size} bytes")
+        logger.log("UPLOAD", f"Metadata enviada: {filename} - {file_size} bytes")
 
     def _send_file_content(self, file_path: str, file_size: int):
         """Envía el contenido completo del archivo al servidor"""
         filename = os.path.basename(file_path)
-        print(f"Enviando contenido del archivo...")
+        logger.log("UPLOAD", f"Enviando contenido del archivo...")
         
         with open(file_path, 'rb') as f:
             bytes_sent = 0
@@ -323,22 +324,26 @@ class FileClient:
         if bytes_sent % (1024 * 1024) == 0 or bytes_sent == total_size:
             mb_sent = bytes_sent / (1024 * 1024)
             mb_total = total_size / (1024 * 1024)
-            print(f"Progreso envío: {mb_sent:.1f} / {mb_total:.1f} MB")
+            logger.log("UPLOAD", f"Progreso envío: {mb_sent:.1f} / {mb_total:.1f} MB")
 
     def _handle_upload_response(self, filename: str):
         """Procesa la respuesta del servidor después de una subida"""
         response = self._receive_response()
         
         if response == Response.UPLOAD_COMPLETE:
-            print(f"Subida completada: {filename}")
+            logger.log("UPLOAD", f"Subida completada: {filename}")
             self.disconnect()
             return True
         elif response == Response.FILE_ALREADY_EXISTS:
-            print(f"Error: El archivo ya existe en el servidor - {filename}")
+            logger.log("UPLOAD", f"Error: El archivo ya existe en el servidor - {filename}")
+            self.disconnect()
+            return False
+        elif response == Response.STORAGE_FULL:
+            logger.log("UPLOAD", f"Error: Capacidad de almacenamiento insuficiente para {filename}")
             self.disconnect()
             return False
         else:
-            print(f"Error en subida: {response}")
+            logger.log("UPLOAD", f"Error en subida: {response}")
             self.disconnect()
             return False
 
@@ -358,7 +363,7 @@ class FileClient:
 
     def _receive_blocks_metadata(self):
         """Recibe metadatos de los bloques del servidor"""
-        print("Recibiendo información de bloques...")
+        logger.log("DOWNLOAD", "Recibiendo información de bloques...")
         
         # Recibir nombre del subdirectorio
         sub_dir = self._receive_string()
@@ -404,7 +409,7 @@ class FileClient:
         sub_dir = blocks_info['sub_dir']
         blocks = blocks_info['blocks']
         
-        print(f"Recibiendo {len(blocks)} bloques: {filename}")
+        logger.log("DOWNLOAD", f"Recibiendo {len(blocks)} bloques: {filename}")
         
         # Crear directorio temporal para bloques
         sub_dir_path = os.path.join(self.temp_dir, sub_dir)
@@ -423,7 +428,7 @@ class FileClient:
         block_path = os.path.join(sub_dir_path, block_name)
         self._download_block_content(block_path, block_size)
         
-        print(f"Bloque {block_index+1}/{total_blocks} recibido: {block_name} - {block_size} bytes")
+        logger.log("DOWNLOAD", f"Bloque {block_index+1}/{total_blocks} recibido: {block_name} - {block_size} bytes")
 
     def _download_block_content(self, block_path: str, block_size: int):
         """Descarga el contenido de un bloque específico"""
@@ -447,10 +452,10 @@ class FileClient:
         response = self._receive_response()
         
         if response == Response.DOWNLOAD_COMPLETE:
-            print(f"Descarga completada: {filename} - {len(blocks_info['blocks'])} bloques")
+            logger.log("DOWNLOAD", f"Descarga completada: {filename} - {len(blocks_info['blocks'])} bloques")
             return True
         else:
-            print(f"Error en descarga: {response}")
+            logger.log("DOWNLOAD", f"Error en descarga: {response}")
             return False
 
     # =========================================================================
@@ -468,12 +473,12 @@ class FileClient:
         file_path = os.path.join(save_path, filename)
         os.makedirs(save_path, exist_ok=True)
         
-        print(f"Reconstruyendo archivo desde {len(blocks)} bloques...")
+        logger.log("DOWNLOAD", f"Reconstruyendo archivo desde {len(blocks)} bloques...")
         
         # Unir bloques en archivo final
         union(blocks, file_path, sub_dir_path)
         
-        print(f"Archivo reconstruido: {file_path}")
+        logger.log("DOWNLOAD", f"Archivo reconstruido: {file_path}")
 
     def _cleanup_temp_blocks(self, blocks_info: dict):
         """Limpia los bloques temporales después de la reconstrucción"""
@@ -488,10 +493,10 @@ class FileClient:
             # Limpiar directorios vacíos
             self._cleanup_empty_directories(sub_dir_path)
             
-            print(f"Bloques temporales limpiados: {len(blocks)} bloques")
+            logger.log("DOWNLOAD", f"Bloques temporales limpiados: {len(blocks)} bloques")
         
         except Exception as e:
-            print(f"Error limpiando bloques temporales: {str(e)}")
+            logger.log("DOWNLOAD", f"Error limpiando bloques temporales: {str(e)}")
 
     def _cleanup_empty_directories(self, sub_dir_path: str):
         """Elimina directorios temporales vacíos"""

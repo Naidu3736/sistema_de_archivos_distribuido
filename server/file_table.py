@@ -103,4 +103,4 @@ class FileTable:
 
     def get_info_file(self, filename: str):
         file_id = self.name_to_id.get(filename)
-        return self.files.get(file_id) if file_id else None
+        return self.files.get(file_id) if file_id is not None else None

@@ -195,3 +195,13 @@ class BlockTable:
             "free_blocks": len(self.available_blocks),
             "usage_percent": (used_blocks / self.total_blocks) * 100
         }
+    
+    def has_available_blocks(self, required_blocks: int) -> bool:
+        """Verifica si hay suficientes bloques disponibles"""
+        available = 0
+        for block in self.blocks:
+            if block['file_id'] is None:
+                available += 1
+                if available >= required_blocks:
+                    return True
+        return False

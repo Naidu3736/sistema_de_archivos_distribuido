@@ -26,6 +26,7 @@ class Response(Enum):
     SERVER_ERROR = 7
     DELETE_COMPLETE = 8
     FILE_ALREADY_EXISTS = 9
+    STORAGE_FULL = 10
     
     def to_bytes(self):
         return self.value.to_bytes(4, 'big')

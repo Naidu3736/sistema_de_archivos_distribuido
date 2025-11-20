@@ -17,7 +17,7 @@ class CommandHandler:
                 self.file_server.process_list_request(client_socket)
             elif command == Command.DELETE:
                 self.file_server.process_delete_request(client_socket)
-            elif command == Command.INFO:
+            elif command == Command.FILE_INFO:
                 self.file_server.process_info_request(client_socket)
             elif command == Command.STORAGE_STATUS:
                 self.file_server.process_storage_status_request(client_socket)
