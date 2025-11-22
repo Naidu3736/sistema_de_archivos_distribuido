@@ -2,8 +2,6 @@ import os
 import socket
 import shutil
 import json
-import threading
-from core.split_union import split
 from core.protocol import Response
 from core.logger import logger
 from server.block_table import BlockTable
@@ -20,15 +18,11 @@ class FileServer:
         self.temp_dir = temp_dir
         self.data_dir = data_dir
         self.BUFFER_SIZE = buffer_size
-        self.BLOCK_SIZE = 1024 * 1024
+        self.BLOCK_SIZE = 1024 * 1024  # 1MB por bloque
         
         # Crear directorios necesarios para operación
         os.makedirs(block_dir, exist_ok=True)
         os.makedirs(temp_dir, exist_ok=True)
-        
-        # Locks para operaciones thread-safe
-        self._table_lock = threading.Lock()  
-        self._file_ops_lock = threading.Lock()  
         
         # Inicializar tablas de gestión
         total_blocks = capacity_mb
@@ -39,130 +33,132 @@ class FileServer:
         logger.log("SERVER", f"Archivos registrados: {len(self.file_table.files)}")
 
     # =========================================================================
-    # MÉTODOS PRINCIPALES DE PROCESAMIENTO DE SOLICITUDES - THREAD-SAFE
+    # MÉTODOS PRINCIPALES DE PROCESAMIENTO DE SOLICITUDES
     # =========================================================================
 
     def process_upload_request(self, client: socket.socket):
-        """Procesa una solicitud de upload del cliente - THREAD-SAFE"""
-        with self._table_lock:
-            try:
-                # Fase 1: Recepción del archivo temporal
-                file_metadata = self._receive_temp_file(client)
-                filename, file_size, temp_file_path = file_metadata
-                
-                # Fase 2: Verificación de existencia
-                if self.file_table.get_info_file(filename):
-                    client.send(Response.FILE_ALREADY_EXISTS.to_bytes())
-                    self._cleanup_temp_file(temp_file_path)
-                    return None
-                
-                # Fase 3: Procesamiento y almacenamiento
-                file_id = self.file_table.create_file(filename, file_size)
-                blocks_info = self._process_file_blocks(temp_file_path, file_id)
-                self._cleanup_temp_file(temp_file_path)
-                
-                # Fase 4: Confirmación al cliente
-                client.send(Response.UPLOAD_COMPLETE.to_bytes())
-                logger.log("UPLOAD", f"Upload completado - FileID: {file_id}, Bloques: {len(blocks_info['blocks'])}")
-                return blocks_info
+        """Procesa una solicitud de upload del cliente en streaming"""
+        try:
+            # Fase 1: Recepción de metadatos
+            filename = self._receive_filename(client)
+            file_size = self._receive_file_size(client)
             
-            except Exception as e:
-                logger.log("UPLOAD", f"Error durante upload: {str(e)}")
-                client.send(Response.SERVER_ERROR.to_bytes())
+            # Fase 2: Verificación de existencia
+            if self.file_table.get_info_file(filename):
+                client.send(Response.FILE_ALREADY_EXISTS.to_bytes())
+                return None
+            
+            # Fase 3: Verificación de espacio disponible
+            required_blocks = (file_size + self.BLOCK_SIZE - 1) // self.BLOCK_SIZE
+            if not self.block_table.has_available_blocks(required_blocks):
+                logger.log("UPLOAD", f"Espacio insuficiente: {filename} requiere {required_blocks} bloques")
+                client.send(Response.STORAGE_FULL.to_bytes())
                 return None
 
+            # Fase 4: Confirmación para cargar el archivo
+            client.send(Response.SUCCESS.to_bytes())
+            
+            # Fase 5: Procesamiento en streaming
+            file_id = self.file_table.create_file(filename, file_size)
+            blocks_info = self._process_streaming_upload(client, filename, file_id, file_size, required_blocks)
+            
+            # Fase 6: Confirmación al cliente
+            client.send(Response.UPLOAD_COMPLETE.to_bytes())
+            logger.log("UPLOAD", f"Upload completado - FileID: {file_id}, Bloques: {len(blocks_info['blocks'])}")
+            return blocks_info
+        
+        except Exception as e:
+            logger.log("UPLOAD", f"Error durante upload: {str(e)}")
+            client.send(Response.SERVER_ERROR.to_bytes())
+            return None
+
     def process_download_request(self, client: socket.socket):
-        """Procesa una solicitud de download del cliente - THREAD-SAFE"""
-        with self._table_lock:
-            try:
-                # Fase 1: Verificación de existencia
-                filename = self._receive_filename(client)
-                file_info = self.file_table.get_info_file(filename)
-                
-                if not file_info:
-                    logger.log("DOWNLOAD", f'Archivo no encontrado: {filename}')
-                    client.send(Response.FILE_NOT_FOUND.to_bytes())
-                    return
+        """Procesa una solicitud de download del cliente en streaming"""
+        try:
+            # Fase 1: Verificación de existencia
+            filename = self._receive_filename(client)
+            file_info = self.file_table.get_info_file(filename)
+            
+            if not file_info:
+                logger.log("DOWNLOAD", f'Archivo no encontrado: {filename}')
+                client.send(Response.FILE_NOT_FOUND.to_bytes())
+                return
 
-                # Fase 2: Envío del archivo
-                client.send(Response.SUCCESS.to_bytes())
-                self._send_file_to_client(client, filename, file_info)
-                client.send(Response.DOWNLOAD_COMPLETE.to_bytes())
+            # Fase 2: Envío del archivo en streaming
+            client.send(Response.SUCCESS.to_bytes())
+            self._stream_file_to_client(client, filename, file_info)
+            client.send(Response.DOWNLOAD_COMPLETE.to_bytes())
 
-            except Exception as e:
-                logger.log("DOWNLOAD", f'Error durante descarga: {str(e)}')
-                client.send(Response.SERVER_ERROR.to_bytes())
+        except Exception as e:
+            logger.log("DOWNLOAD", f'Error durante descarga: {str(e)}')
+            client.send(Response.SERVER_ERROR.to_bytes())
 
     def process_delete_request(self, client: socket.socket):
-        """Procesa una solicitud de eliminación de archivo - THREAD-SAFE"""
-        with self._table_lock:
-            try:
-                # Fase 1: Verificación de existencia
-                filename = self._receive_filename(client)
-                file_info = self.file_table.get_info_file(filename)
-                
-                if not file_info:
-                    client.send(Response.FILE_NOT_FOUND.to_bytes())
-                    return
+        """Procesa una solicitud de eliminación de archivo"""
+        try:
+            # Fase 1: Verificación de existencia
+            filename = self._receive_filename(client)
+            file_info = self.file_table.get_info_file(filename)
+            
+            if not file_info:
+                client.send(Response.FILE_NOT_FOUND.to_bytes())
+                return
 
-                # Fase 2: Eliminación lógica y física
-                self._delete_file(filename, file_info)
-                client.send(Response.DELETE_COMPLETE.to_bytes())
-                logger.log("DELETE", f"Archivo eliminado: {filename}")
+            # Fase 2: Eliminación lógica y física
+            self._delete_file(filename, file_info)
+            client.send(Response.DELETE_COMPLETE.to_bytes())
+            logger.log("DELETE", f"Archivo eliminado: {filename}")
 
-            except Exception as e:
-                logger.log("DELETE", f'Error durante eliminación: {str(e)}')
-                client.send(Response.SERVER_ERROR.to_bytes())
+        except Exception as e:
+            logger.log("DELETE", f'Error durante eliminación: {str(e)}')
+            client.send(Response.SERVER_ERROR.to_bytes())
 
     def process_list_request(self, client: socket.socket):
-        """Procesa una solicitud de listado de archivos - THREAD-SAFE"""
-        with self._table_lock:
-            try:
-                # Recopilar información de todos los archivos
-                files_info = self._get_all_files_info()
-                
-                # Serializar y enviar respuesta
-                files_json = json.dumps(files_info).encode('utf-8')
-                client.send(len(files_json).to_bytes(4, 'big'))
-                client.send(files_json)
-                
-                logger.log("LIST", f"Listado enviado - {len(files_info)}")
-                
-            except Exception as e:
-                logger.log("LIST", f'Error durante listado: {str(e)}')
-                client.send(Response.SERVER_ERROR.to_bytes())
+        """Procesa una solicitud de listado de archivos"""
+        try:
+            # Recopilar información de todos los archivos
+            files_info = self._get_all_files_info()
+            
+            # Serializar y enviar respuesta
+            files_json = json.dumps(files_info).encode('utf-8')
+            client.send(len(files_json).to_bytes(4, 'big'))
+            client.send(files_json)
+            
+            logger.log("LIST", f"Listado enviado - {len(files_info)} archivos")
+            
+        except Exception as e:
+            logger.log("LIST", f'Error durante listado: {str(e)}')
+            client.send(Response.SERVER_ERROR.to_bytes())
 
     def process_info_request(self, client: socket.socket):
-        """Procesa solicitud de información de archivo - THREAD-SAFE"""
-        with self._table_lock:
-            try:
-                # Fase 1: Obtención de información
-                filename = self._receive_filename(client)
-                file_info = self.get_file_info(filename)
-                
-                if not file_info:
-                    client.send(Response.FILE_NOT_FOUND.to_bytes())
-                    return
-                
-                # Fase 2: Preparación y envío de respuesta
-                serializable_info = self._prepare_file_info_for_serialization(file_info)
-                self._send_json_response(client, serializable_info)
-                
-            except Exception as e:
-                logger.log("INFO", f'Error durante info: {str(e)}')
-                client.send(Response.SERVER_ERROR.to_bytes())
+        """Procesa solicitud de información de archivo"""
+        try:
+            # Fase 1: Obtención de información
+            filename = self._receive_filename(client)
+            file_info = self.get_file_info(filename)
+            
+            if not file_info:
+                client.send(Response.FILE_NOT_FOUND.to_bytes())
+                return
+            
+            # Fase 2: Preparación y envío de respuesta
+            serializable_info = self._prepare_file_info_for_serialization(file_info)
+            self._send_json_response(client, serializable_info)
+            
+        except Exception as e:
+            logger.log("INFO", f'Error durante info: {str(e)}')
+            client.send(Response.SERVER_ERROR.to_bytes())
 
     def process_storage_status_request(self, client: socket.socket):
-        """Procesa solicitud de estado del almacenamiento - THREAD-SAFE"""
-        with self._table_lock:
-            try:
-                # Obtener y enviar estado del sistema
-                status = self.get_storage_status()
-                self._send_json_response(client, status)
-                
-            except Exception as e:
-                logger.log("STATUS", f'Error durante storage status: {str(e)}')
-                client.send(Response.SERVER_ERROR.to_bytes())
+        """Procesa solicitud de estado del almacenamiento"""
+        try:
+            # Obtener y enviar estado del sistema
+            status = self.get_storage_status()
+            self._send_json_response(client, status)
+            
+        except Exception as e:
+            logger.log("STATUS", f'Error durante storage status: {str(e)}')
+            client.send(Response.SERVER_ERROR.to_bytes())
 
     # =========================================================================
     # MANEJO DE COMUNICACIÓN CON EL CLIENTE
@@ -174,69 +170,10 @@ class FileServer:
         filename_bytes = client.recv(filename_size)
         return filename_bytes.decode('utf-8')
 
-    def _receive_temp_file(self, client: socket.socket):
-        """
-        Recibe un archivo completo del cliente y lo guarda temporalmente
-        Retorna: (filename, file_size, temp_file_path)
-        """
-        logger.log("SERVER", "Recibiendo información del archivo...")
-        os.makedirs(self.temp_dir, exist_ok=True)
-        
-        # Recepción de metadatos
-        filename = self._receive_file_metadata(client)
-        file_size = self._receive_file_size(client)
-        
-        # import math
-        # required_blocks = math.ceil(file_size / self.BLOCK_SIZE)
-        # if not self.block_table.has_available_blocks(required_blocks):
-        #     logger.log("UPLOAD", f"No hay bloques suficientes. Requeridos: {required_blocks}, Disponibles: {len(self.block_table.available_blocks)}")
-        #     return None
-
-        logger.log("SERVER", f'Recibiendo: {filename} ({file_size} bytes)')
-
-        # Recepción del contenido
-        temp_file_path = self._receive_file_content(client, filename, file_size)
-        
-        return filename, file_size, temp_file_path
-
-    def _receive_file_metadata(self, client: socket.socket) -> str:
-        """Recibe los metadatos del archivo (nombre)"""
-        size_bytes = client.recv(4)
-        size = int.from_bytes(size_bytes, 'big')
-        file_bytes = client.recv(size)
-        return file_bytes.decode('utf-8')
-
     def _receive_file_size(self, client: socket.socket) -> int:
         """Recibe el tamaño del archivo"""
         file_size_bytes = client.recv(8)
         return int.from_bytes(file_size_bytes, 'big')
-
-    def _receive_file_content(self, client: socket.socket, filename: str, file_size: int) -> str:
-        """Recibe el contenido del archivo y lo guarda en temporal"""
-        temp_file_path = os.path.join(self.temp_dir, filename)
-
-        
-        with open(temp_file_path, 'wb') as f:
-            bytes_received = 0
-            while bytes_received < file_size:
-                chunk = client.recv(min(self.BUFFER_SIZE, file_size - bytes_received))
-                if not chunk:
-                    break
-                f.write(chunk)
-                bytes_received += len(chunk)
-
-                # Mostrar progreso cada 1MB
-                self._show_download_progress(bytes_received, file_size)
-
-        logger.log("SERVER", f"Recepción completada: {os.path.basename(temp_file_path)}")
-        return temp_file_path
-
-    def _show_download_progress(self, bytes_received: int, total_size: int):
-        """Muestra el progreso de descarga cada 1MB"""
-        if bytes_received % self.BLOCK_SIZE == 0 or bytes_received == total_size:
-            mb_received = bytes_received / self.BLOCK_SIZE
-            mb_total = total_size / self.BLOCK_SIZE
-            logger.log("SERVER", f"Progreso: {mb_received:.1f} / {mb_total:.1f} MB")
 
     def _send_json_response(self, client: socket.socket, data: dict):
         """Envía una respuesta JSON al cliente"""
@@ -245,71 +182,69 @@ class FileServer:
         client.send(data_json)
 
     # =========================================================================
-    # GESTIÓN DE BLOQUES DE ARCHIVOS
+    # GESTIÓN DE BLOQUES EN STREAMING
     # =========================================================================
 
-    def _process_file_blocks(self, file_path: str, file_id: int) -> dict:
-        """
-        Procesa la división y asignación de bloques de un archivo
-        Retorna información sobre los bloques creados
-        """
-        with self._file_ops_lock:
-            filename = os.path.basename(file_path)
-            logger.log("BLOCKS", f"Dividiendo archivo en bloques: {filename}")
-
-            # División física del archivo
-            blocks_info = self._split_into_blocks(file_path)
-            num_blocks = len(blocks_info['blocks'])
-
-            # Asignación lógica de bloques
-            allocated_blocks = self.block_table.allocate_blocks(file_id, num_blocks)
-            
-            # Actualización de metadatos
-            self._update_file_table_blocks(file_id, allocated_blocks, num_blocks)
-            
-            return blocks_info
-
-    def _split_into_blocks(self, file_path: str) -> dict:
-        """Divide el archivo en bloques físicos"""
-        filename = os.path.basename(file_path)
+    def _process_streaming_upload(self, client: socket.socket, filename: str, file_id: int, file_size: int, required_blocks: int):
+        """Procesa la subida en streaming y crea los bloques directamente"""
+        logger.log("UPLOAD", f"Procesando upload en streaming: {filename} ({file_size} bytes, {required_blocks} bloques)")
+        
+        # Asignar bloques lógicos
+        allocated_blocks = self.block_table.allocate_blocks(file_id, required_blocks)
+        self.file_table.set_first_block(file_id, allocated_blocks[0])
+        self.file_table.update_block_count(file_id, required_blocks)
+        
+        # Crear directorio para bloques físicos
         sub_dir = os.path.splitext(filename)[0]
-        sub_dir_path = os.path.join(self.block_dir, sub_dir)
-
-        # Usar función split que crea block_0.bin, block_1.bin, etc.
-        blocks = split(file_path, sub_dir_path)
-        logger.log("BLOCKS", f'División completada: {len(blocks)} bloques creados')
+        blocks_dir = os.path.join(self.block_dir, sub_dir)
+        os.makedirs(blocks_dir, exist_ok=True)
         
-        # VERIFICACIÓN: Confirmar que los bloques se crearon físicamente
-        self._verify_blocks_creation(sub_dir_path)
+        blocks_created = []
+        bytes_remaining = file_size
+        block_index = 0
         
+        # Procesar archivo en bloques directamente del stream
+        while bytes_remaining > 0 and block_index < required_blocks:
+            block_name = f"block_{block_index}.bin"
+            block_path = os.path.join(blocks_dir, block_name)
+            
+            # Calcular tamaño del bloque actual
+            current_block_size = min(self.BLOCK_SIZE, bytes_remaining)
+            
+            # Crear bloque físico desde el stream
+            self._create_block_from_stream(client, block_path, current_block_size)
+            blocks_created.append(block_name)
+            
+            bytes_remaining -= current_block_size
+            block_index += 1
+            
+            # Mostrar progreso
+            mb_processed = (block_index * self.BLOCK_SIZE) / (1024 * 1024)
+            mb_total = file_size / (1024 * 1024)
+            logger.log("UPLOAD", f"Progreso: {mb_processed:.1f} / {mb_total:.1f} MB - Bloque {block_index}/{required_blocks}")
+        
+        logger.log("UPLOAD", f"Bloques creados: {len(blocks_created)}")
         return {
             'sub_dir': sub_dir,
             'filename': filename,
-            'blocks': blocks,
-            'blocks_dir': sub_dir_path
+            'blocks': blocks_created,
+            'blocks_dir': blocks_dir
         }
 
-    def _verify_blocks_creation(self, blocks_dir: str):
-        """Verifica que los bloques se hayan creado correctamente"""
-        if os.path.exists(blocks_dir):
-            created_files = os.listdir(blocks_dir)
-            logger.log("DEBUG", f"Archivos creados en {blocks_dir}: {created_files}")
-        else:
-            logger.log("ERROR", f"No se creó el directorio: {blocks_dir}")
+    def _create_block_from_stream(self, client: socket.socket, block_path: str, block_size: int):
+        """Crea un bloque físico directamente desde el stream del cliente"""
+        with open(block_path, 'wb') as block_file:
+            bytes_received = 0
+            while bytes_received < block_size:
+                chunk_size = min(self.BUFFER_SIZE, block_size - bytes_received)
+                chunk = client.recv(chunk_size)
+                if not chunk:
+                    break
+                block_file.write(chunk)
+                bytes_received += len(chunk)
 
-    def _update_file_table_blocks(self, file_id: int, allocated_blocks: list, num_blocks: int):
-        """Actualiza la información de bloques en FileTable"""
-        if allocated_blocks:
-            self.file_table.set_first_block(file_id, allocated_blocks[0])
-            self.file_table.update_block_count(file_id, num_blocks)
-            logger.log("BLOCKS", f"Bloques lógicos asignados: {allocated_blocks}")
-
-    # =========================================================================
-    # GESTIÓN OF DESCARGA Y ENVÍO DE ARCHIVOS
-    # =========================================================================
-
-    def _send_file_to_client(self, client: socket.socket, filename: str, file_info: dict):
-        """Coordina el envío de un archivo al cliente"""
+    def _stream_file_to_client(self, client: socket.socket, filename: str, file_info: dict):
+        """Envía el archivo al cliente en streaming desde los bloques"""
         # Obtener cadena de bloques lógicos
         block_chain = self.block_table.get_block_chain(file_info["first_block_id"])
         
@@ -318,39 +253,68 @@ class FileServer:
             return
 
         # Preparar información de bloques físicos
-        blocks_info = self._prepare_blocks_info(filename, file_info, block_chain)
-        if not blocks_info:
-            return
-
-        # Enviar bloques al cliente
-        self._send_blocks_to_client(client, blocks_info)
-        logger.log("DOWNLOAD", f'Descarga completada: {filename}')
-
-    def _prepare_blocks_info(self, filename: str, file_info: dict, block_chain: list) -> dict:
-        """Prepara la información de bloques físicos para envío"""
         sub_dir = os.path.splitext(filename)[0]
         blocks_dir = os.path.join(self.block_dir, sub_dir)
         
-        # Verificar existencia del directorio
         if not os.path.exists(blocks_dir):
             logger.log("ERROR", f'Directorio de bloques no encontrado: {blocks_dir}')
-            return None
+            return
 
-        # Obtener lista de bloques físicos reales
+        # Obtener bloques físicos ordenados
         block_files = self._get_physical_blocks(blocks_dir)
         if not block_files:
             logger.log("ERROR", f"No hay bloques físicos en: {blocks_dir}")
-            return None
+            return
 
-        # Validar cantidad de bloques
-        self._validate_block_count(block_files, file_info["block_count"])
+        # Enviar metadatos de streaming
+        self._send_streaming_metadata(client, filename, len(block_files))
+        
+        # Enviar bloques en streaming
+        self._stream_blocks_to_client(client, blocks_dir, block_files)
+        
+        logger.log("DOWNLOAD", f'Streaming completado: {filename} - {len(block_files)} bloques')
 
-        return {
-            'sub_dir': sub_dir,
-            'filename': filename,
-            'blocks': block_files,
-            'blocks_dir': blocks_dir
-        }
+    def _send_streaming_metadata(self, client: socket.socket, filename: str, block_count: int):
+        """Envía metadatos para el streaming"""
+        # Enviar nombre del archivo
+        filename_bytes = filename.encode('utf-8')
+        client.send(len(filename_bytes).to_bytes(4, 'big'))
+        client.send(filename_bytes)
+        
+        # Enviar cantidad de bloques
+        client.send(block_count.to_bytes(4, 'big'))
+
+    def _stream_blocks_to_client(self, client: socket.socket, blocks_dir: str, block_files: list):
+        """Transmite todos los bloques al cliente en streaming"""
+        for i, block_name in enumerate(block_files):
+            block_path = os.path.join(blocks_dir, block_name)
+            self._stream_single_block(client, block_path, i, len(block_files))
+
+    def _stream_single_block(self, client: socket.socket, block_path: str, block_index: int, total_blocks: int):
+        """Transmite un solo bloque al cliente"""
+        if not os.path.exists(block_path):
+            logger.log("ERROR", f"Bloque no encontrado: {block_path}")
+            client.send((0).to_bytes(8, 'big'))
+            return
+
+        block_size = os.path.getsize(block_path)
+        client.send(block_size.to_bytes(8, 'big'))
+        
+        # Transmitir contenido del bloque
+        with open(block_path, 'rb') as block_file:
+            bytes_sent = 0
+            while bytes_sent < block_size:
+                chunk = block_file.read(self.BUFFER_SIZE)
+                if not chunk:
+                    break
+                client.send(chunk)
+                bytes_sent += len(chunk)
+        
+        logger.log("DOWNLOAD", f"Bloque {block_index+1}/{total_blocks} transmitido: {os.path.basename(block_path)} - {block_size} bytes")
+
+    # =========================================================================
+    # MÉTODOS AUXILIARES (sin cambios)
+    # =========================================================================
 
     def _get_physical_blocks(self, blocks_dir: str) -> list:
         """Obtiene la lista de bloques físicos ordenados"""
@@ -363,78 +327,6 @@ class FileServer:
         # Ordenar por número de bloque: block_0.bin, block_1.bin, etc.
         block_files = sorted(block_files, key=lambda x: int(x.split('_')[1].split('.')[0]))
         return block_files
-
-    def _validate_block_count(self, actual_blocks: list, expected_count: int):
-        """Valida que la cantidad de bloques físicos coincida con la esperada"""
-        if len(actual_blocks) != expected_count:
-            logger.log("WARNING", f"Se esperaban {expected_count} bloques, pero hay {len(actual_blocks)} físicos")
-
-    def _send_blocks_to_client(self, client: socket.socket, blocks_info: dict):
-        """Envía todos los bloques al cliente en secuencia"""
-        # Envío de metadatos
-        self._send_blocks_metadata(client, blocks_info)
-        
-        # Envío de contenido de bloques
-        self._send_blocks_content(client, blocks_info)
-
-    def _send_blocks_metadata(self, client: socket.socket, blocks_info: dict):
-        """Envía los metadatos de los bloques al cliente"""
-        # Enviar nombre del subdirectorio
-        sub_dir_bytes = blocks_info['sub_dir'].encode('utf-8')
-        client.send(len(sub_dir_bytes).to_bytes(4, 'big'))
-        client.send(sub_dir_bytes)
-
-        # Enviar nombre del archivo
-        filename_bytes = blocks_info['filename'].encode('utf-8')
-        client.send(len(filename_bytes).to_bytes(4, 'big'))
-        client.send(filename_bytes)
-
-        # Enviar cantidad de bloques
-        client.send(len(blocks_info['blocks']).to_bytes(4, 'big'))
-
-        # Enviar nombres de bloques individuales
-        for block in blocks_info['blocks']:
-            block_name_bytes = block.encode('utf-8')
-            client.send(len(block_name_bytes).to_bytes(4, 'big'))
-            client.send(block_name_bytes)
-
-    def _send_blocks_content(self, client: socket.socket, blocks_info: dict):
-        """Envía el contenido de todos los bloques"""
-        for i, block in enumerate(blocks_info['blocks']):
-            self._send_single_block(client, block, blocks_info['blocks_dir'])
-            logger.log("DOWNLOAD", f"Bloque {i+1}/{len(blocks_info['blocks'])} enviado: {block}")
-
-    def _send_single_block(self, client: socket.socket, block_name: str, blocks_dir: str):
-        """Envía un solo bloque al cliente"""
-        block_path = os.path.join(blocks_dir, block_name)
-        
-        # Verificar existencia del bloque
-        if not os.path.exists(block_path):
-            logger.log("ERROR", f"Bloque no encontrado: {block_path}")
-            client.send((0).to_bytes(8, 'big'))  # Indicar bloque faltante
-            return
-
-        # Enviar tamaño y contenido del bloque
-        block_size = os.path.getsize(block_path)
-        client.send(block_size.to_bytes(8, 'big'))
-
-        self._send_block_content(client, block_path, block_size)
-        # logger.log("DOWNLOAD", f"  {block_name} enviado ({block_size} bytes)")
-
-    def _send_block_content(self, client: socket.socket, block_path: str, block_size: int):
-        """Envía el contenido de un bloque específico"""
-        with open(block_path, 'rb') as f:
-            bytes_sent = 0
-            while bytes_sent < block_size:
-                chunk = f.read(self.BUFFER_SIZE)
-                if not chunk:
-                    break
-                client.send(chunk)
-                bytes_sent += len(chunk)
-
-    # =========================================================================
-    # GESTIÓN DE ELIMINACIÓN Y LIMPIEZA
-    # =========================================================================
 
     def _delete_file(self, filename: str, file_info: dict):
         """Elimina completamente un archivo del sistema"""
@@ -465,19 +357,6 @@ class FileServer:
         if os.path.exists(blocks_dir):
             shutil.rmtree(blocks_dir)
             logger.log("DELETE", f"Directorio eliminado: {blocks_dir}")
-
-    def _cleanup_temp_file(self, temp_file_path):
-        """Elimina archivo temporal"""
-        try:
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-                logger.log("CLEANUP", f"Archivo temporal eliminado: {temp_file_path}")
-        except Exception as e:
-            logger.log("ERROR", f"Error limpiando archivo temporal: {str(e)}")
-
-    # =========================================================================
-    # CONSULTAS E INFORMACIÓN DEL SISTEMA
-    # =========================================================================
 
     def _get_all_files_info(self) -> list:
         """Obtiene información de todos los archivos registrados"""
