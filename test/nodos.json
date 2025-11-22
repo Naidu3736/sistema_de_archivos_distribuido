@@ -1,0 +1,20 @@
+{
+  "nodos": [
+    {
+      "id": 8001,
+      "host": "192.168.101.14",
+      "puerto": 8001,
+      "capacidad": 100,
+      "estado": "activo",
+      "ultima_conexion": "2024-01-01 10:00:00"
+    },
+    {
+      "id": 8002, 
+      "host": "192.168.101.15",
+      "puerto": 8002,
+      "capacidad": 100,
+      "estado": "activo",
+      "ultima_conexion": "2024-01-01 10:00:00"
+    }
+  ]
+}
