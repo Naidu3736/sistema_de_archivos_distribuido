@@ -57,24 +57,48 @@ class NetworkServer:
         client_thread.start()
 
     def _client_session(self, client_socket: socket.socket, addr):
-        """Maneja la sesión de un cliente específico - UNA OPERACIÓN POR CONEXIÓN"""
+        """Maneja la sesión de un cliente específico - CONEXIÓN PERSISTENTE"""
+        logger.log("NETWORK", f"Sesión persistente iniciada con cliente {addr}")
+        
         try:
-            client_socket.settimeout(10.0)
-
-            command_bytes = client_socket.recv(4)
+            # Configurar timeout para no bloquear indefinidamente
+            client_socket.settimeout(0.5)
             
-            # Si no hay datos, el cliente cerró la conexión
-            if not command_bytes:
-                logger.log("NETWORK", f"Cliente {addr} cerró la conexión sin enviar comando")
-                return
-
-            # Procesar el comando (ESTE DEBE MANEJAR TODA LA OPERACIÓN)
-            self._execute_command(client_socket, addr, command_bytes)
+            while self.running:
+                try:
+                    # Esperar comandos del cliente
+                    command_bytes = client_socket.recv(4)
                     
-        except socket.timeout:
-            logger.log("NETWORK", f"Timeout con cliente {addr} - Cerrando conexión")
+                    # Si no hay datos (timeout), continuar esperando
+                    if not command_bytes:
+                        continue
+                    
+                    # Procesar el comando
+                    self._execute_command(client_socket, addr, command_bytes)
+                        
+                except socket.timeout:
+                    # Timeout normal, continuar esperando más comandos
+                    continue
+                except ConnectionResetError:
+                    logger.log("NETWORK", f"Cliente {addr} cerró la conexión")
+                    break
+                except BrokenPipeError:
+                    logger.log("NETWORK", f"Conexión rota con cliente {addr}")
+                    break
+                except Exception as e:
+                    logger.log("NETWORK", f"Error recibiendo comando de {addr}: {str(e)}")
+                    # No romper la conexión por errores individuales
+                    continue
+                    
         except Exception as e:
             logger.log("NETWORK", f"Error en sesión con cliente {addr}: {str(e)}")
+        finally:
+            # Solo cerrar cuando realmente termine la sesión
+            try:
+                client_socket.close()
+                logger.log("NETWORK", f"Conexión cerrada con cliente {addr}")
+            except:
+                pass
 
     def _execute_command(self, client_socket: socket.socket, addr, command_bytes):
         """Ejecuta un comando específico"""
@@ -91,6 +115,7 @@ class NetworkServer:
 
     def stop(self):
         """Detiene el servidor"""
+        self.running = False
         if self.socket:
             self.socket.close()
             logger.log("SERVER", "Servidor detenido")

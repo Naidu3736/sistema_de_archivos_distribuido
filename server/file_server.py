@@ -2,6 +2,7 @@ import os
 import socket
 import shutil
 import json
+import threading
 from core.split_union import split
 from core.protocol import Response
 from core.logger import logger
@@ -25,6 +26,10 @@ class FileServer:
         os.makedirs(block_dir, exist_ok=True)
         os.makedirs(temp_dir, exist_ok=True)
         
+        # Locks para operaciones thread-safe
+        self._table_lock = threading.Lock()  
+        self._file_ops_lock = threading.Lock()  
+        
         # Inicializar tablas de gestión
         total_blocks = capacity_mb
         self.block_table = BlockTable(total_blocks=total_blocks, data_dir=data_dir)
@@ -34,124 +39,130 @@ class FileServer:
         logger.log("SERVER", f"Archivos registrados: {len(self.file_table.files)}")
 
     # =========================================================================
-    # MÉTODOS PRINCIPALES DE PROCESAMIENTO DE SOLICITUDES
+    # MÉTODOS PRINCIPALES DE PROCESAMIENTO DE SOLICITUDES - THREAD-SAFE
     # =========================================================================
 
     def process_upload_request(self, client: socket.socket):
-        """Procesa una solicitud de upload del cliente"""
-        try:
-            # Fase 1: Recepción del archivo temporal
-            file_metadata = self._receive_temp_file(client)
-            filename, file_size, temp_file_path = file_metadata
-            
-            # Fase 2: Verificación de existencia
-            if self.file_table.get_info_file(filename):
-                client.send(Response.FILE_ALREADY_EXISTS.to_bytes())
+        """Procesa una solicitud de upload del cliente - THREAD-SAFE"""
+        with self._table_lock:
+            try:
+                # Fase 1: Recepción del archivo temporal
+                file_metadata = self._receive_temp_file(client)
+                filename, file_size, temp_file_path = file_metadata
+                
+                # Fase 2: Verificación de existencia
+                if self.file_table.get_info_file(filename):
+                    client.send(Response.FILE_ALREADY_EXISTS.to_bytes())
+                    self._cleanup_temp_file(temp_file_path)
+                    return None
+                
+                # Fase 3: Procesamiento y almacenamiento
+                file_id = self.file_table.create_file(filename, file_size)
+                blocks_info = self._process_file_blocks(temp_file_path, file_id)
                 self._cleanup_temp_file(temp_file_path)
+                
+                # Fase 4: Confirmación al cliente
+                client.send(Response.UPLOAD_COMPLETE.to_bytes())
+                logger.log("UPLOAD", f"Upload completado - FileID: {file_id}, Bloques: {len(blocks_info['blocks'])}")
+                return blocks_info
+            
+            except Exception as e:
+                logger.log("UPLOAD", f"Error durante upload: {str(e)}")
+                client.send(Response.SERVER_ERROR.to_bytes())
                 return None
-            
-            # Fase 3: Procesamiento y almacenamiento
-            file_id = self.file_table.create_file(filename, file_size)
-            blocks_info = self._process_file_blocks(temp_file_path, file_id)
-            self._cleanup_temp_file(temp_file_path)
-            
-            # Fase 4: Confirmación al cliente
-            client.send(Response.UPLOAD_COMPLETE.to_bytes())
-            logger.log("UPLOAD", f"Upload completado - FileID: {file_id}, Bloques: {len(blocks_info['blocks'])}")
-            return blocks_info
-        
-        except Exception as e:
-            logger.log("UPLOAD", f"Error durante upload: {str(e)}")
-            client.send(Response.SERVER_ERROR.to_bytes())
-            return None
 
     def process_download_request(self, client: socket.socket):
-        """Procesa una solicitud de download del cliente"""
-        try:
-            # Fase 1: Verificación de existencia
-            filename = self._receive_filename(client)
-            file_info = self.file_table.get_info_file(filename)
-            
-            if not file_info:
-                logger.log("DOWNLOAD", f'Archivo no encontrado: {filename}')
-                client.send(Response.FILE_NOT_FOUND.to_bytes())
-                return
+        """Procesa una solicitud de download del cliente - THREAD-SAFE"""
+        with self._table_lock:
+            try:
+                # Fase 1: Verificación de existencia
+                filename = self._receive_filename(client)
+                file_info = self.file_table.get_info_file(filename)
+                
+                if not file_info:
+                    logger.log("DOWNLOAD", f'Archivo no encontrado: {filename}')
+                    client.send(Response.FILE_NOT_FOUND.to_bytes())
+                    return
 
-            # Fase 2: Envío del archivo
-            client.send(Response.SUCCESS.to_bytes())
-            self._send_file_to_client(client, filename, file_info)
-            client.send(Response.DOWNLOAD_COMPLETE.to_bytes())
+                # Fase 2: Envío del archivo
+                client.send(Response.SUCCESS.to_bytes())
+                self._send_file_to_client(client, filename, file_info)
+                client.send(Response.DOWNLOAD_COMPLETE.to_bytes())
 
-        except Exception as e:
-            logger.log("DOWNLOAD", f'Error durante descarga: {str(e)}')
-            client.send(Response.SERVER_ERROR.to_bytes())
+            except Exception as e:
+                logger.log("DOWNLOAD", f'Error durante descarga: {str(e)}')
+                client.send(Response.SERVER_ERROR.to_bytes())
 
     def process_delete_request(self, client: socket.socket):
-        """Procesa una solicitud de eliminación de archivo"""
-        try:
-            # Fase 1: Verificación de existencia
-            filename = self._receive_filename(client)
-            file_info = self.file_table.get_info_file(filename)
-            
-            if not file_info:
-                client.send(Response.FILE_NOT_FOUND.to_bytes())
-                return
+        """Procesa una solicitud de eliminación de archivo - THREAD-SAFE"""
+        with self._table_lock:
+            try:
+                # Fase 1: Verificación de existencia
+                filename = self._receive_filename(client)
+                file_info = self.file_table.get_info_file(filename)
+                
+                if not file_info:
+                    client.send(Response.FILE_NOT_FOUND.to_bytes())
+                    return
 
-            # Fase 2: Eliminación lógica y física
-            self._delete_file(filename, file_info)
-            client.send(Response.DELETE_COMPLETE.to_bytes())
-            logger.log("DELETE", f"Archivo eliminado: {filename}")
+                # Fase 2: Eliminación lógica y física
+                self._delete_file(filename, file_info)
+                client.send(Response.DELETE_COMPLETE.to_bytes())
+                logger.log("DELETE", f"Archivo eliminado: {filename}")
 
-        except Exception as e:
-            logger.log("DELETE", f'Error durante eliminación: {str(e)}')
-            client.send(Response.SERVER_ERROR.to_bytes())
+            except Exception as e:
+                logger.log("DELETE", f'Error durante eliminación: {str(e)}')
+                client.send(Response.SERVER_ERROR.to_bytes())
 
     def process_list_request(self, client: socket.socket):
-        """Procesa una solicitud de listado de archivos"""
-        try:
-            # Recopilar información de todos los archivos
-            files_info = self._get_all_files_info()
-            
-            # Serializar y enviar respuesta
-            files_json = json.dumps(files_info).encode('utf-8')
-            client.send(len(files_json).to_bytes(4, 'big'))
-            client.send(files_json)
-            
-            logger.log("LIST", f"Listado enviado - {len(files_info)}")
-            
-        except Exception as e:
-            logger.log("LIST", f'Error durante listado: {str(e)}')
-            client.send(Response.SERVER_ERROR.to_bytes())
+        """Procesa una solicitud de listado de archivos - THREAD-SAFE"""
+        with self._table_lock:
+            try:
+                # Recopilar información de todos los archivos
+                files_info = self._get_all_files_info()
+                
+                # Serializar y enviar respuesta
+                files_json = json.dumps(files_info).encode('utf-8')
+                client.send(len(files_json).to_bytes(4, 'big'))
+                client.send(files_json)
+                
+                logger.log("LIST", f"Listado enviado - {len(files_info)}")
+                
+            except Exception as e:
+                logger.log("LIST", f'Error durante listado: {str(e)}')
+                client.send(Response.SERVER_ERROR.to_bytes())
 
     def process_info_request(self, client: socket.socket):
-        """Procesa solicitud de información de archivo"""
-        try:
-            # Fase 1: Obtención de información
-            filename = self._receive_filename(client)
-            file_info = self.get_file_info(filename)
-            
-            if not file_info:
-                client.send(Response.FILE_NOT_FOUND.to_bytes())
-                return
-            
-            # Fase 2: Preparación y envío de respuesta
-            serializable_info = self._prepare_file_info_for_serialization(file_info)
-            self._send_json_response(client, serializable_info)
-            
-        except Exception as e:
-            logger.log("INFO", f'Error durante info: {str(e)}')
-            client.send(Response.SERVER_ERROR.to_bytes())
+        """Procesa solicitud de información de archivo - THREAD-SAFE"""
+        with self._table_lock:
+            try:
+                # Fase 1: Obtención de información
+                filename = self._receive_filename(client)
+                file_info = self.get_file_info(filename)
+                
+                if not file_info:
+                    client.send(Response.FILE_NOT_FOUND.to_bytes())
+                    return
+                
+                # Fase 2: Preparación y envío de respuesta
+                serializable_info = self._prepare_file_info_for_serialization(file_info)
+                self._send_json_response(client, serializable_info)
+                
+            except Exception as e:
+                logger.log("INFO", f'Error durante info: {str(e)}')
+                client.send(Response.SERVER_ERROR.to_bytes())
 
     def process_storage_status_request(self, client: socket.socket):
-        """Procesa solicitud de estado del almacenamiento"""
-        try:
-            # Obtener y enviar estado del sistema
-            status = self.get_storage_status()
-            self._send_json_response(client, status)
-            
-        except Exception as e:
-            logger.log("STATUS", f'Error durante storage status: {str(e)}')
-            client.send(Response.SERVER_ERROR.to_bytes())
+        """Procesa solicitud de estado del almacenamiento - THREAD-SAFE"""
+        with self._table_lock:
+            try:
+                # Obtener y enviar estado del sistema
+                status = self.get_storage_status()
+                self._send_json_response(client, status)
+                
+            except Exception as e:
+                logger.log("STATUS", f'Error durante storage status: {str(e)}')
+                client.send(Response.SERVER_ERROR.to_bytes())
 
     # =========================================================================
     # MANEJO DE COMUNICACIÓN CON EL CLIENTE
@@ -242,20 +253,21 @@ class FileServer:
         Procesa la división y asignación de bloques de un archivo
         Retorna información sobre los bloques creados
         """
-        filename = os.path.basename(file_path)
-        logger.log("BLOCKS", f"Dividiendo archivo en bloques: {filename}")
+        with self._file_ops_lock:
+            filename = os.path.basename(file_path)
+            logger.log("BLOCKS", f"Dividiendo archivo en bloques: {filename}")
 
-        # División física del archivo
-        blocks_info = self._split_into_blocks(file_path)
-        num_blocks = len(blocks_info['blocks'])
+            # División física del archivo
+            blocks_info = self._split_into_blocks(file_path)
+            num_blocks = len(blocks_info['blocks'])
 
-        # Asignación lógica de bloques
-        allocated_blocks = self.block_table.allocate_blocks(file_id, num_blocks)
-        
-        # Actualización de metadatos
-        self._update_file_table_blocks(file_id, allocated_blocks, num_blocks)
-        
-        return blocks_info
+            # Asignación lógica de bloques
+            allocated_blocks = self.block_table.allocate_blocks(file_id, num_blocks)
+            
+            # Actualización de metadatos
+            self._update_file_table_blocks(file_id, allocated_blocks, num_blocks)
+            
+            return blocks_info
 
     def _split_into_blocks(self, file_path: str) -> dict:
         """Divide el archivo en bloques físicos"""
