@@ -71,7 +71,8 @@ class NetworkServer:
                     
                     # Si no hay datos (timeout), continuar esperando
                     if not command_bytes:
-                        continue
+                        logger.log("NETWORK", f"Conexión perdida con cliente {addr} \ {command_bytes}")
+                        break
                     
                     # Procesar el comando
                     self._execute_command(client_socket, addr, command_bytes)
@@ -87,8 +88,7 @@ class NetworkServer:
                     break
                 except Exception as e:
                     logger.log("NETWORK", f"Error recibiendo comando de {addr}: {str(e)}")
-                    # No romper la conexión por errores individuales
-                    continue
+                    break
                     
         except Exception as e:
             logger.log("NETWORK", f"Error en sesión con cliente {addr}: {str(e)}")
