@@ -42,13 +42,6 @@ class FileServer:
         try:
             # Fase 1: Recepción del archivo temporal
             file_metadata = self._receive_temp_file(client)
-
-            if not file_metadata:
-                logger.log("UPLOAD", "El archivo excede la capacidad actual del sistema")
-                client.send(Response.STORAGE_FULL.to_bytes())
-                return None
-            
-            client.send(Response.SUCCESS.to_bytes())
             filename, file_size, temp_file_path = file_metadata
             
             # Fase 2: Verificación de existencia
@@ -182,11 +175,11 @@ class FileServer:
         filename = self._receive_file_metadata(client)
         file_size = self._receive_file_size(client)
         
-        import math
-        required_blocks = math.ceil(file_size / self.BLOCK_SIZE)
-        if not self.block_table.has_available_blocks(required_blocks):
-            logger.log("UPLOAD", f"No hay bloques suficientes. Requeridos: {required_blocks}, Disponibles: {len(self.block_table.available_blocks)}")
-            return None
+        # import math
+        # required_blocks = math.ceil(file_size / self.BLOCK_SIZE)
+        # if not self.block_table.has_available_blocks(required_blocks):
+        #     logger.log("UPLOAD", f"No hay bloques suficientes. Requeridos: {required_blocks}, Disponibles: {len(self.block_table.available_blocks)}")
+        #     return None
 
         logger.log("SERVER", f'Recibiendo: {filename} ({file_size} bytes)')
 

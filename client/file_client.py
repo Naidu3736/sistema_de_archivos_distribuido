@@ -15,45 +15,70 @@ class FileClient:
         self.BUFFER_SIZE = buffer_size
         self.temp_dir = "temp"
         self.socket = None
+        self.is_connected = False  # Nuevo: estado de conexión
         
         # Crear directorio temporal para operaciones
         os.makedirs(self.temp_dir, exist_ok=True)
         logger.log("CLIENT", f"Cliente de archivos configurado - Servidor: {host_server}:{port_server}")
     
     # =========================================================================
-    # GESTIÓN DE CONEXIÓN Y DESCONEXIÓN
+    # GESTIÓN DE CONEXIÓN Y DESCONEXIÓN MEJORADA
     # =========================================================================
 
     def connect(self):
-        """Establece conexión con el servidor"""
+        """Establece conexión persistente con el servidor"""
+        if self.is_connected and self.socket:
+            return True
+            
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host_server, self.port_server))
+            self.is_connected = True
             
             logger.log("CLIENT", f"Conectado al servidor {self.host_server}:{self.port_server}")
             return True
         except Exception as e:
             logger.log("CLIENT", f"Error de conexión: {str(e)}")
+            self.is_connected = False
             return False
 
     def disconnect(self):
         """Cierra la conexión con el servidor"""
         if self.socket:
+            self.socket.send(Command.DELETE.to_bytes())
             self.socket.close()
             self.socket = None
+            self.is_connected = False
             logger.log("CLIENT", "Desconectado del servidor")
 
+    def ensure_connection(self):
+        """Verifica y mantiene la conexión activa"""
+        if not self.is_connected or not self.socket:
+            return self.connect()
+        
+        # Verificar si el socket sigue activo
+        try:
+            # Intentar una operación de prueba no bloqueante
+            self.socket.settimeout(0.1)
+            data = self.socket.recv(1, socket.MSG_PEEK)
+            return True
+        except (socket.timeout, socket.error):
+            # Reconectar si hay problemas
+            self.disconnect()
+            return self.connect()
+        finally:
+            self.socket.settimeout(None)
+
     # =========================================================================
-    # OPERACIONES PRINCIPALES CON ARCHIVOS
+    # OPERACIONES PRINCIPALES CON ARCHIVOS (CONEXIÓN PERSISTENTE)
     # =========================================================================
 
     def upload_file(self, file_path: str):
         """Sube un archivo al sistema distribuido de archivos"""
-        if not self._validate_connection():
+        if not self.ensure_connection():
             return False
         
         if not self._validate_local_file(file_path):
-            self.disconnect()
             return False
             
         try:
@@ -75,12 +100,12 @@ class FileClient:
         
         except Exception as e:
             logger.log("UPLOAD", f"Error durante subida: {str(e)}")
-            self.disconnect()
+            self.disconnect()  # Solo desconectar en error
             return False
 
     def download_file(self, filename: str, save_path: str):
         """Descarga un archivo del sistema distribuido de archivos"""
-        if not self._validate_connection():
+        if not self.ensure_connection():
             return False
             
         try:
@@ -101,7 +126,7 @@ class FileClient:
             # Fase 4: Procesamiento del archivo
             success = self._process_downloaded_blocks(blocks_info, save_path, filename)
             
-            self.disconnect()
+            # NO desconectar aquí - mantener conexión
             return success
             
         except Exception as e:
@@ -111,7 +136,7 @@ class FileClient:
 
     def delete_file(self, filename: str):
         """Elimina un archivo del sistema distribuido de archivos"""
-        if not self._validate_connection():
+        if not self.ensure_connection():
             return False
             
         try:
@@ -126,15 +151,15 @@ class FileClient:
             
             if response == Response.DELETE_COMPLETE:
                 logger.log("DELETE", f"Archivo eliminado: {filename}")
-                self.disconnect()
+                # NO desconectar aquí
                 return True
             elif response == Response.FILE_NOT_FOUND:
                 logger.log("DELETE", f"Archivo no encontrado: {filename}")
-                self.disconnect()
+                # NO desconectar aquí
                 return False
             else:
                 logger.log("DELETE", f"Error en eliminación: {response}")
-                self.disconnect()
+                # NO desconectar aquí
                 return False
             
         except Exception as e:
@@ -143,12 +168,12 @@ class FileClient:
             return False
 
     # =========================================================================
-    # OPERACIONES DE CONSULTA E INFORMACIÓN
+    # OPERACIONES DE CONSULTA E INFORMACIÓN (CONEXIÓN PERSISTENTE)
     # =========================================================================
 
     def list_files(self):
         """Solicita lista de archivos disponibles en el servidor"""
-        if not self._validate_connection():
+        if not self.ensure_connection():
             return []
             
         try:
@@ -161,7 +186,7 @@ class FileClient:
             files_info = self._receive_json_response()
             
             logger.log("LIST", f"Lista de archivos recibida: {len(files_info)} archivos")
-            self.disconnect()
+            # NO desconectar aquí - mantener conexión
             return files_info
             
         except Exception as e:
@@ -171,7 +196,7 @@ class FileClient:
 
     def get_file_info(self, filename: str):
         """Obtiene información detallada de un archivo específico"""
-        if not self._validate_connection():
+        if not self.ensure_connection():
             return None
             
         try:
@@ -184,7 +209,7 @@ class FileClient:
             # Fase 2: Recepción de información
             file_info = self._receive_json_response()
             
-            self.disconnect()
+            # NO desconectar aquí - mantener conexión
             return file_info
             
         except Exception as e:
@@ -194,7 +219,7 @@ class FileClient:
 
     def get_storage_status(self):
         """Obtiene el estado del almacenamiento del servidor"""
-        if not self._validate_connection():
+        if not self.ensure_connection():
             return None
             
         try:
@@ -206,7 +231,7 @@ class FileClient:
             # Fase 2: Recepción de estado
             status_info = self._receive_json_response()
             
-            self.disconnect()
+            # NO desconectar aquí - mantener conexión
             return status_info
             
         except Exception as e:
@@ -215,14 +240,17 @@ class FileClient:
             return None
 
     # =========================================================================
-    # MANEJO DE COMUNICACIÓN CON EL SERVIDOR
+    # MÉTODO PARA CIERRE EXPLÍCITO
     # =========================================================================
 
-    def _validate_connection(self):
-        """Valida que la conexión esté activa"""
-        if not self.connect():
-            return False
-        return True
+    def close(self):
+        """Cierra la conexión explícitamente (para cuando termine la aplicación)"""
+        self.disconnect()
+        logger.log("CLIENT", "Cliente cerrado explícitamente")
+
+    # =========================================================================
+    # MANEJO DE COMUNICACIÓN CON EL SERVIDOR (SIN CAMBIOS)
+    # =========================================================================
 
     def _send_command(self, command: Command):
         """Envía un comando al servidor"""
@@ -263,7 +291,7 @@ class FileClient:
         return data
 
     # =========================================================================
-    # VALIDACIONES Y VERIFICACIONES
+    # VALIDACIONES Y VERIFICACIONES (SIN CAMBIOS)
     # =========================================================================
 
     def _validate_local_file(self, file_path: str):
@@ -279,18 +307,16 @@ class FileClient:
         
         if response == Response.FILE_NOT_FOUND:
             logger.log("DOWNLOAD", f"Archivo no encontrado en servidor: {filename}")
-            self.disconnect()
             return False
         
         elif response != Response.SUCCESS:
             logger.log("DOWNLOAD", f"Error del servidor: {response}")
-            self.disconnect()
             return False
         
         return True
 
     # =========================================================================
-    # MANEJO DE SUBIDA DE ARCHIVOS
+    # MANEJO DE SUBIDA DE ARCHIVOS (SIN CAMBIOS)
     # =========================================================================
 
     def _send_file_metadata(self, filename: str, file_size: int):
@@ -332,23 +358,19 @@ class FileClient:
         
         if response == Response.UPLOAD_COMPLETE:
             logger.log("UPLOAD", f"Subida completada: {filename}")
-            self.disconnect()
             return True
         elif response == Response.FILE_ALREADY_EXISTS:
             logger.log("UPLOAD", f"Error: El archivo ya existe en el servidor - {filename}")
-            self.disconnect()
             return False
         elif response == Response.STORAGE_FULL:
             logger.log("UPLOAD", f"Error: Capacidad de almacenamiento insuficiente para {filename}")
-            self.disconnect()
             return False
         else:
             logger.log("UPLOAD", f"Error en subida: {response}")
-            self.disconnect()
             return False
 
     # =========================================================================
-    # MANEJO DE DESCARGA DE ARCHIVOS
+    # MANEJO DE DESCARGA DE ARCHIVOS (SIN CAMBIOS)
     # =========================================================================
 
     def _receive_blocks_from_server(self):
@@ -459,7 +481,7 @@ class FileClient:
             return False
 
     # =========================================================================
-    # RECONSTRUCCIÓN Y LIMPIEZA DE ARCHIVOS
+    # RECONSTRUCCIÓN Y LIMPIEZA DE ARCHIVOS (SIN CAMBIOS)
     # =========================================================================
 
     def _reconstruct_file_from_blocks(self, blocks_info: dict, save_path: str):

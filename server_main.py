@@ -31,7 +31,10 @@ class ServerManager:
             self.server.stop()
 
 def main():
-    server_manager = ServerManager(host='localhost', port=8001)
+    host = input("Ingrese el host [localhost]: ") or 'localhost'
+    port = int(input("Ingrese el port: "))
+
+    server_manager = ServerManager(host=host, port=port)
     server_manager.run()
 
 if __name__ == "__main__":

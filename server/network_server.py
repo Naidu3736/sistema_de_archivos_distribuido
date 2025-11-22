@@ -75,10 +75,6 @@ class NetworkServer:
             logger.log("NETWORK", f"Timeout con cliente {addr} - Cerrando conexión")
         except Exception as e:
             logger.log("NETWORK", f"Error en sesión con cliente {addr}: {str(e)}")
-        finally:
-            client_socket.close()
-            logger.log("NETWORK", f"CLIENT_DISCONNECTED: client_address={addr[0]}, client_port={addr[1]}")
-            logger.log("NETWORK", f"Cliente {addr} desconectado")
 
     def _execute_command(self, client_socket: socket.socket, addr, command_bytes):
         """Ejecuta un comando específico"""

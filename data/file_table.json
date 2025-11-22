@@ -1,0 +1,31 @@
+{
+  "files": {
+    "12": {
+      "filename": "gato.mp4",
+      "total_size": 12553815,
+      "created_at": "2025-11-21T16:29:53.690464",
+      "first_block_id": 112,
+      "block_count": 12
+    },
+    "13": {
+      "filename": "ellen.mp4",
+      "total_size": 25849915,
+      "created_at": "2025-11-21T16:36:07.220875",
+      "first_block_id": 124,
+      "block_count": 25
+    },
+    "14": {
+      "filename": "Proyecto 4 Normalizacion.pdf",
+      "total_size": 1271231,
+      "created_at": "2025-11-21T17:25:00.229112",
+      "first_block_id": 149,
+      "block_count": 2
+    }
+  },
+  "name_to_id": {
+    "gato.mp4": 12,
+    "ellen.mp4": 13,
+    "Proyecto 4 Normalizacion.pdf": 14
+  },
+  "next_file_id": 16
+}
