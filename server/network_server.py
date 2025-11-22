@@ -87,8 +87,7 @@ class NetworkServer:
                     break
                 except Exception as e:
                     logger.log("NETWORK", f"Error recibiendo comando de {addr}: {str(e)}")
-                    # No romper la conexión por errores individuales
-                    continue
+                    break
                     
         except Exception as e:
             logger.log("NETWORK", f"Error en sesión con cliente {addr}: {str(e)}")
