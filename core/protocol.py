@@ -7,7 +7,9 @@ class Command(Enum):
     DELETE = 4
     FILE_INFO = 5
     STORAGE_STATUS = 6
-    DISCONNECT = 6 
+    DISCONNECT = 7
+    METADATA_UPDATE = 8
+    BLOCK_TABLE = 9
 
     def to_bytes(self):
         return self.value.to_bytes(4, 'big')

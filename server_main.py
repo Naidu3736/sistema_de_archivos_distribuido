@@ -4,8 +4,8 @@ from server.network_server import NetworkServer
 from core.logger import logger
 
 class ServerManager:
-    def __init__(self, host='localhost', port=8001):
-        self.server = NetworkServer(host=host, port=port)
+    def __init__(self, host='localhost', port=8001, capacity=300):
+        self.server = NetworkServer(host=host, port=port, capacity_mb=capacity)
         self.setup_signal_handlers()
     
     def setup_signal_handlers(self):
@@ -32,7 +32,8 @@ class ServerManager:
 
 def main():
     host = input("Ingrese el host [localhost]: ") or 'localhost'
-    port = int(input("Ingrese el port: "))
+    port_input = input("Ingrese el port: ")
+    port = int(port_input) if port_input else 8001
 
     server_manager = ServerManager(host=host, port=port)
     server_manager.run()

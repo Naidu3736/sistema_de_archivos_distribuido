@@ -6,12 +6,13 @@ from core.protocol import Command
 from core.logger import logger
 
 class NetworkServer:
-    def __init__(self, host='0.0.0.0', port=8001):
+    def __init__(self, host='0.0.0.0', port=8001, capacity_mb: int = 1000, number_clients: int = 20): 
         self.host = host
         self.port = port
+        self.number_clients = number_clients
         self.socket = None
         self.running = False
-        self.file_server = FileServer()
+        self.file_server = FileServer(capacity_mb=capacity_mb)
         self.command_handler = CommandHandler(self.file_server)
     
     def start(self):
@@ -62,7 +63,7 @@ class NetworkServer:
         
         try:
             # Configurar timeout para no bloquear indefinidamente
-            client_socket.settimeout(0.5)
+            client_socket.settimeout(None)
             
             while self.running:
                 try:
@@ -71,7 +72,7 @@ class NetworkServer:
                     
                     # Si no hay datos (timeout), continuar esperando
                     if not command_bytes:
-                        logger.log("NETWORK", f"Conexión perdida con cliente {addr} \ {command_bytes}")
+                        logger.log("NETWORK", f"Conexión perdida con cliente {addr}")
                         break
                     
                     # Procesar el comando

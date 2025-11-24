@@ -21,6 +21,8 @@ class CommandHandler:
                 self.file_server.process_info_request(client_socket)
             elif command == Command.STORAGE_STATUS:
                 self.file_server.process_storage_status_request(client_socket)
+            elif command == Command.BLOCK_TABLE:
+                self.file_server.process_block_table_request(client_socket)
             elif command == Command.DISCONNECT:
                 client_socket.send(Response.SUCCESS.to_bytes())
             else:
