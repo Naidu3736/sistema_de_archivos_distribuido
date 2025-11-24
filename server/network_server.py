@@ -1,7 +1,7 @@
 import socket
 import threading
 from server.file_server import FileServer
-from server.command_handler import CommandHandler
+from server.handlers.command_handler import CommandHandler
 from core.protocol import Command
 from core.logger import logger
 

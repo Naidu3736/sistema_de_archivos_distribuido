@@ -3,6 +3,7 @@ import socket
 import shutil
 from core.protocol import Response
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class DeleteHandler:
     def __init__(self, file_server):
@@ -12,24 +13,24 @@ class DeleteHandler:
         """Procesa una solicitud de eliminación de archivo"""
         try:
             # Fase 1: Verificación de existencia (con lock)
-            filename = self.server._receive_filename(client)
+            filename = NetworkUtils.receive_filename(client)
             with self.server.file_table_lock:
                 file_info = self.server.file_table.get_info_file(filename)
                 
             if not file_info:
-                client.send(Response.FILE_NOT_FOUND.to_bytes())
+                NetworkUtils.send_response(client, Response.FILE_NOT_FOUND)
                 return
 
             # Fase 2: Eliminación lógica y física (con locks)
             with self.server.file_operation_lock:
                 self._delete_file(filename, file_info)
             
-            client.send(Response.DELETE_COMPLETE.to_bytes())
+            NetworkUtils.send_response(client, Response.DELETE_COMPLETE)
             logger.log("DELETE", f"Archivo eliminado: {filename}")
 
         except Exception as e:
             logger.log("DELETE", f'Error durante eliminación: {str(e)}')
-            client.send(Response.SERVER_ERROR.to_bytes())
+            NetworkUtils.send_response(client, Response.SERVER_ERROR)
 
     def _delete_file(self, filename: str, file_info):
         """Elimina completamente un archivo del sistema (con locks)"""

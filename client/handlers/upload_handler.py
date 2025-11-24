@@ -2,6 +2,7 @@ import os
 import socket
 from core.protocol import Command, Response
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class UploadHandler:
     def __init__(self, client):
@@ -19,15 +20,15 @@ class UploadHandler:
             logger.log("UPLOAD", "Iniciando subida de archivo en streaming...")
             
             # Fase 1: Envío de comando y metadatos
-            self.client._send_command(Command.UPLOAD)
+            NetworkUtils.send_command(self.client.socket, Command.UPLOAD)
             filename = os.path.basename(file_path)
             file_size = os.path.getsize(file_path)
             
             logger.log("UPLOAD", f"Subiendo archivo: {filename} ({file_size} bytes)")
-            self._send_file_metadata(filename, file_size)
+            NetworkUtils.send_file_metadata(self.client.socket, filename, file_size)
 
             # Fase 2: Esperar confirmación del servidor para proceder
-            response = self.client._receive_response()
+            response = NetworkUtils.receive_response(self.client.socket)
             if response != Response.SUCCESS:
                 self._handle_upload_error(response, filename)
                 return False
@@ -36,7 +37,7 @@ class UploadHandler:
             self._stream_file_content(file_path, file_size)
     
             # Fase 4: Verificación de respuesta
-            response = self.client._receive_response()
+            response = NetworkUtils.receive_response(self.client.socket)
             if response == Response.UPLOAD_COMPLETE:
                 logger.log("UPLOAD", f"Carga de archivo completada: {filename}")
                 return True

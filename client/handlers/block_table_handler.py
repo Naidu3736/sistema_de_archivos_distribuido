@@ -3,6 +3,7 @@ import socket
 import threading
 from core.protocol import Command, Response
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class BlockTableHandler:
     def __init__(self, client):
@@ -17,10 +18,10 @@ class BlockTableHandler:
             logger.log("INFO", "Solicitando tabla de bloques")
 
             # Fase 1: Envío de comando
-            self.client._send_command(Command.BLOCK_TABLE)
+            NetworkUtils.send_command(self.client.socket, Command.BLOCK_TABLE)
 
             # Fase 2: Recepción y procesamiento de datos
-            block_table = self.client._receive_json_response()
+            block_table = NetworkUtils.receive_json(self.client.socket)
 
             logger.log("INFO", f"Lista de bloques recibida - {len(block_table)} bloques")
 
@@ -28,5 +29,5 @@ class BlockTableHandler:
 
         except Exception as e:
             logger.log("INFO", f"Error al procesar la tabla de bloques: {str(e)}")
-            self.client._send_command(Response.FAILURE.to_bytes())
+            NetworkUtils.send_command(self.client.socket, Command.FAILURE)
             return None

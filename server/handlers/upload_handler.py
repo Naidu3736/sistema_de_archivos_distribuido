@@ -1,36 +1,32 @@
 import os
 import socket
-import threading
 from core.protocol import Response
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class UploadHandler:
     def __init__(self, file_server):
         self.server = file_server
-        
+
     def process(self, client: socket.socket):
-        """Procesa una solicitud de upload del cliente en streaming"""
+        """Procesa una solicitud de upload del cliente"""
         try:
-            # Fase 1: Recepción de metadatos
-            filename = self.server._receive_filename(client)
-            file_size = self.server._receive_file_size(client)
+            # Fase 1: Recibir nombre del archivo
+            filename = NetworkUtils.receive_filename(client)
             
-            # Fase 2: Verificación de existencia (con lock)
-            with self.server.file_table_lock:
-                if self.server.file_table.get_info_file(filename):
-                    client.send(Response.FILE_ALREADY_EXISTS.to_bytes())
-                    return None
-            
+            # Fase 2: Recibir tamaño del archivo
+            file_size = NetworkUtils.receive_file_size(client)
+
             # Fase 3: Verificación de espacio disponible (con lock)
             required_blocks = (file_size + self.server.BLOCK_SIZE - 1) // self.server.BLOCK_SIZE
             with self.server.block_table_lock:
                 if not self.server.block_table.has_available_blocks(required_blocks):
                     logger.log("UPLOAD", f"Espacio insuficiente: {filename} requiere {required_blocks} bloques")
-                    client.send(Response.STORAGE_FULL.to_bytes())
+                    NetworkUtils.send_response(client, Response.STORAGE_FULL)
                     return None
 
             # Fase 4: Confirmación para cargar el archivo
-            client.send(Response.SUCCESS.to_bytes())
+            NetworkUtils.send_response(client, Response.SUCCESS)
             
             # Fase 5: Procesamiento en streaming (con locks para asignación)
             with self.server.file_operation_lock:
@@ -44,13 +40,13 @@ class UploadHandler:
             blocks_info = self._process_streaming_upload(client, filename, file_id, file_size, required_blocks)
             
             # Fase 7: Confirmación al cliente
-            client.send(Response.UPLOAD_COMPLETE.to_bytes())
+            NetworkUtils.send_response(client, Response.UPLOAD_COMPLETE)
             logger.log("UPLOAD", f"Upload completado - FileID: {file_id}, Bloques: {len(blocks_info['blocks'])}")
             return blocks_info
         
         except Exception as e:
             logger.log("UPLOAD", f"Error durante upload: {str(e)}")
-            client.send(Response.SERVER_ERROR.to_bytes())
+            NetworkUtils.send_response(client, Response.SERVER_ERROR)
             return None
 
     def _process_streaming_upload(self, client: socket.socket, filename: str, file_id: int, file_size: int, required_blocks: int):

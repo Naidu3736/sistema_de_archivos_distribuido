@@ -73,26 +73,6 @@ class FileServer:
     
     def process_block_table_request(self, client: socket.socket):
         return self.block_table_handler.process(client)
-    # =========================================================================
-    # MÉTODOS AUXILIARES DE COMUNICACIÓN
-    # =========================================================================
-
-    def _receive_filename(self, client: socket.socket) -> str:
-        """Recibe el nombre de archivo del cliente"""
-        filename_size = int.from_bytes(client.recv(4), 'big')
-        filename_bytes = client.recv(filename_size)
-        return filename_bytes.decode('utf-8')
-
-    def _receive_file_size(self, client: socket.socket) -> int:
-        """Recibe el tamaño del archivo"""
-        file_size_bytes = client.recv(8)
-        return int.from_bytes(file_size_bytes, 'big')
-
-    def _send_json_response(self, client: socket.socket, data: dict):
-        """Envía una respuesta JSON al cliente"""
-        data_json = json.dumps(data).encode('utf-8')
-        client.send(len(data_json).to_bytes(4, 'big'))
-        client.send(data_json)
 
     # =========================================================================
     # MÉTODOS AUXILIARES COMPARTIDOS

@@ -422,7 +422,11 @@ class FileManagerGUI(QMainWindow):
             return
             
         from PyQt6.QtWidgets import QFileDialog
-        save_path, _ = QFileDialog.getSaveFileName(self, "Guardar Archivo", filename)
+        save_path = QFileDialog.getExistingDirectory(
+            self, 
+            "Guardar Archivo",
+            ""
+        )
         
         if save_path:
             self.right_panel.progress_bar.setVisible(True)

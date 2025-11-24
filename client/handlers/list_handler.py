@@ -1,6 +1,7 @@
 from core.protocol import Command
 from core.logger import logger
 from typing import List
+from core.network_utils import NetworkUtils
 
 class ListHandler:
     def __init__(self, client):
@@ -15,10 +16,10 @@ class ListHandler:
             logger.log("LIST", "Solicitando lista de archivos...")
             
             # Fase 1: Envío de comando
-            self.client._send_command(Command.LIST_FILES)
+            NetworkUtils.send_command(self.client.socket, Command.LIST_FILES)
             
             # Fase 2: Recepción y procesamiento de datos
-            files_info = self.client._receive_json_response()
+            files_info = NetworkUtils.receive_json(self.client.socket)
             
             logger.log("LIST", f"Lista de archivos recibida: {len(files_info)} archivos")
             return files_info

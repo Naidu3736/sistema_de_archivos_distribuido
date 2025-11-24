@@ -2,6 +2,7 @@ import json
 import socket
 from core.protocol import Response
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class ListHandler:
     def __init__(self, file_server):
@@ -15,15 +16,13 @@ class ListHandler:
                 files_info = self._get_all_files_info()
             
             # Serializar y enviar respuesta
-            files_json = json.dumps(files_info).encode('utf-8')
-            client.send(len(files_json).to_bytes(4, 'big'))
-            client.send(files_json)
+            NetworkUtils.send_json(client,files_info)
             
             logger.log("LIST", f"Listado enviado - {len(files_info)} archivos")
             
         except Exception as e:
             logger.log("LIST", f'Error durante listado: {str(e)}')
-            client.send(Response.SERVER_ERROR.to_bytes())
+            NetworkUtils.send_response(client, Response.SERVER_ERROR)
 
     def _get_all_files_info(self) -> list:
         """Obtiene información de todos los archivos registrados"""

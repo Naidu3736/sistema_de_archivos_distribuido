@@ -1,5 +1,6 @@
 from core.protocol import Command
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class StatusHandler:
     def __init__(self, client):
@@ -14,10 +15,10 @@ class StatusHandler:
             logger.log("STATUS", "Solicitando estado del almacenamiento...")
             
             # Fase 1: Envío de comando
-            self.client._send_command(Command.STORAGE_STATUS)
+            NetworkUtils.send_command(self.client.socket, Command.STORAGE_STATUS)
             
             # Fase 2: Recepción de estado
-            status_info = self.client._receive_json_response()
+            status_info = NetworkUtils.receive_json(self.client.socket)
             
             return status_info
             

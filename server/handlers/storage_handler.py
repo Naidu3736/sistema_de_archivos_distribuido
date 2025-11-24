@@ -1,6 +1,7 @@
 import socket
 from core.protocol import Response
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class StorageHandler:
     def __init__(self, file_server):
@@ -13,8 +14,8 @@ class StorageHandler:
             with self.server.file_table_lock, self.server.block_table_lock:
                 status = self.server.get_storage_status()
             
-            self.server._send_json_response(client, status)
+            NetworkUtils.send_json(client, status)
             
         except Exception as e:
             logger.log("STATUS", f'Error durante storage status: {str(e)}')
-            client.send(Response.SERVER_ERROR.to_bytes())
+            NetworkUtils.send_response(client, Response.SERVER_ERROR)

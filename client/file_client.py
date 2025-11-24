@@ -33,7 +33,7 @@ class FileClient:
     # GESTIÓN DE CONEXIÓN Y DESCONEXIÓN
     # =========================================================================
 
-    def connect(self):
+    def connect(self) -> bool:
         """Establece conexión persistente con el servidor"""
         if self.is_connected and self.socket:
             return True
@@ -98,45 +98,3 @@ class FileClient:
         """Cierra la conexión explícitamente"""
         self.disconnect()
         logger.log("CLIENT", "Cliente cerrado explícitamente")
-
-    # =========================================================================
-    # MÉTODOS AUXILIARES DE COMUNICACIÓN
-    # =========================================================================
-
-    def _send_command(self, command: Command):
-        """Envía un comando al servidor"""
-        self.socket.send(command.to_bytes())
-
-    def _send_filename(self, filename: str):
-        """Envía un nombre de archivo al servidor"""
-        filename_bytes = filename.encode('utf-8')
-        self.socket.send(len(filename_bytes).to_bytes(4, 'big'))
-        self.socket.send(filename_bytes)
-
-    def _receive_response(self):
-        """Recibe y parsea una respuesta del servidor"""
-        response_bytes = self.socket.recv(4)
-        return Response.from_bytes(response_bytes)
-
-    def _receive_json_response(self):
-        """Recibe y procesa una respuesta JSON del servidor"""
-        # Recibir tamaño del JSON
-        size_bytes = self.socket.recv(4)
-        json_size = int.from_bytes(size_bytes, 'big')
-        
-        # Recibir datos JSON completos
-        json_data = self._receive_complete_data(json_size)
-        
-        # Parsear y retornar
-        return json.loads(json_data.decode('utf-8'))
-
-    def _receive_complete_data(self, total_size: int):
-        """Recibe una cantidad específica de datos del servidor"""
-        data = b""
-        while len(data) < total_size:
-            chunk_size = min(self.BUFFER_SIZE, total_size - len(data))
-            chunk = self.socket.recv(chunk_size)
-            if not chunk:
-                break
-            data += chunk
-        return data

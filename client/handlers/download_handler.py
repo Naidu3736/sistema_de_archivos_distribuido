@@ -2,6 +2,7 @@ import os
 import socket
 from core.protocol import Command, Response
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class DownloadHandler:
     def __init__(self, client):
@@ -16,8 +17,8 @@ class DownloadHandler:
             logger.log("DOWNLOAD", f"Solicitando descarga: {filename}")
             
             # Fase 1: Solicitud de descarga
-            self.client._send_command(Command.DOWNLOAD)
-            self.client._send_filename(filename)
+            NetworkUtils.send_command(self.client.socket, Command.DOWNLOAD)
+            NetworkUtils.send_filename(self.client.socket, filename)
             
             # Fase 2: Verificación de disponibilidad
             if not self._validate_download_availability(filename):
@@ -35,7 +36,7 @@ class DownloadHandler:
 
     def _validate_download_availability(self, filename: str):
         """Valida que el archivo esté disponible para descarga"""
-        response = self.client._receive_response()
+        response = NetworkUtils.receive_response(self.client.socket)
         
         if response == Response.FILE_NOT_FOUND:
             logger.log("DOWNLOAD", f"Archivo no encontrado en servidor: {filename}")
@@ -66,7 +67,7 @@ class DownloadHandler:
         total_bytes_received = self._receive_streaming_blocks(file_path, block_count)
         
         # Fase 4: Verificación final
-        response = self.client._receive_response()
+        response = NetworkUtils.receive_response(self.client.socket)
         
         if response == Response.DOWNLOAD_COMPLETE:
             logger.log("DOWNLOAD", f"Descarga completada: {filename} - {total_bytes_received} bytes recibidos")
@@ -78,9 +79,7 @@ class DownloadHandler:
     def _receive_streaming_metadata(self):
         """Recibe metadatos del streaming del servidor"""
         # Recibir nombre del archivo
-        filename_size = int.from_bytes(self.client.socket.recv(4), 'big')
-        filename_bytes = self.client.socket.recv(filename_size)
-        filename = filename_bytes.decode('utf-8')
+        filename = NetworkUtils.receive_filename(self.client.socket)
         
         # Recibir cantidad de bloques
         block_count = int.from_bytes(self.client.socket.recv(4), 'big')

@@ -1,5 +1,6 @@
 from core.protocol import Command, Response
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class DeleteHandler:
     def __init__(self, client):
@@ -14,11 +15,11 @@ class DeleteHandler:
             logger.log("DELETE", f"Solicitando eliminación: {filename}")
             
             # Fase 1: Envío de solicitud
-            self.client._send_command(Command.DELETE)
-            self.client._send_filename(filename)
+            NetworkUtils.send_command(self.client.socket, Command.DELETE)
+            NetworkUtils.send_filename(self.client.socket, filename)
             
             # Fase 2: Procesamiento de respuesta
-            response = self.client._receive_response()
+            response = NetworkUtils.receive_response(self.client.socket)
             
             if response == Response.DELETE_COMPLETE:
                 logger.log("DELETE", f"Archivo eliminado: {filename}")

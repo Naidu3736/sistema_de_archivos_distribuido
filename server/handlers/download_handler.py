@@ -2,6 +2,7 @@ import os
 import socket
 from core.protocol import Response
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class DownloadHandler:
     def __init__(self, file_server):
@@ -11,23 +12,23 @@ class DownloadHandler:
         """Procesa una solicitud de download del cliente en streaming"""
         try:
             # Fase 1: Verificación de existencia (con lock)
-            filename = self.server._receive_filename(client)
+            filename = NetworkUtils.receive_filename(client)
             with self.server.file_table_lock:
                 file_info = self.server.file_table.get_info_file(filename)
                 
             if not file_info:
                 logger.log("DOWNLOAD", f'Archivo no encontrado: {filename}')
-                client.send(Response.FILE_NOT_FOUND.to_bytes())
+                NetworkUtils.send_response(client, Response.FILE_NOT_FOUND)
                 return
 
             # Fase 2: Envío del archivo en streaming
-            client.send(Response.SUCCESS.to_bytes())
+            NetworkUtils.send_response(client, Response.SUCCESS)
             self._stream_file_to_client(client, filename, file_info)
-            client.send(Response.DOWNLOAD_COMPLETE.to_bytes())
+            NetworkUtils.send_response(client, Response.DOWNLOAD_COMPLETE)
 
         except Exception as e:
             logger.log("DOWNLOAD", f'Error durante descarga: {str(e)}')
-            client.send(Response.SERVER_ERROR.to_bytes())
+            NetworkUtils.send_response(client, Response.SERVER_ERROR)
 
     def _stream_file_to_client(self, client: socket.socket, filename: str, file_info):
         """Envía el archivo al cliente en streaming desde los bloques"""
@@ -64,9 +65,7 @@ class DownloadHandler:
     def _send_streaming_metadata(self, client: socket.socket, filename: str, block_count: int):
         """Envía metadatos para el streaming"""
         # Enviar nombre del archivo
-        filename_bytes = filename.encode('utf-8')
-        client.send(len(filename_bytes).to_bytes(4, 'big'))
-        client.send(filename_bytes)
+        NetworkUtils.send_filename(client, filename)
         
         # Enviar cantidad de bloques
         client.send(block_count.to_bytes(4, 'big'))

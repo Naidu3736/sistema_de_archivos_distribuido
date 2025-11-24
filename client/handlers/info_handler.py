@@ -1,5 +1,6 @@
 from core.protocol import Command
 from core.logger import logger
+from core.network_utils import NetworkUtils
 
 class InfoHandler:
     def __init__(self, client):
@@ -14,11 +15,11 @@ class InfoHandler:
             logger.log("INFO", f"Solicitando información de: {filename}")
             
             # Fase 1: Envío de solicitud
-            self.client._send_command(Command.FILE_INFO)
-            self.client._send_filename(filename)
+            NetworkUtils.send_command(self.client.socket, Command.FILE_INFO)
+            NetworkUtils.send_filename(self.client.socket, filename)
             
             # Fase 2: Recepción de información
-            file_info = self.client._receive_json_response()
+            file_info = NetworkUtils.receive_json(self.client.socket)
             
             return file_info
             
