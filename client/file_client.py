@@ -53,7 +53,10 @@ class FileClient:
     def disconnect(self):
         """Cierra la conexión con el servidor"""
         if self.socket:
-            self.socket.send(Command.DISCONNECT.to_bytes())
+            try:
+                self.socket.send(Command.DISCONNECT.to_bytes())
+            except Exception as e:
+                logger.log("CLIENT", f"Error al desconectar: {str(e)}")
             self.socket.close()
             self.socket = None
             self.is_connected = False
