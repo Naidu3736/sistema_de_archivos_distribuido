@@ -15,7 +15,7 @@ class InfoHandler:
             logger.log("INFO", f"Solicitando información de: {filename}")
             
             # Fase 1: Envío de solicitud
-            NetworkUtils.send_command(self.client.socket, Command.FILE_INFO)
+            NetworkUtils.send_command(self.client.socket, Command.INFO)
             NetworkUtils.send_filename(self.client.socket, filename)
             
             # Fase 2: Recepción de información

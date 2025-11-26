@@ -6,11 +6,11 @@ from core.protocol import Command
 from core.logger import logger
 
 class NetworkServer:
-    def __init__(self, host='0.0.0.0', port=8001, capacity_mb: int = 1000, number_clients: int = 20):
+    def __init__(self, host='0.0.0.0', port=8001, number_clients: int = 20):
         self.host = host
         self.port = port
         self.number_clients = number_clients
-        self.file_server = FileServer(capacity_mb=capacity_mb)
+        self.file_server = FileServer()
         self.socket = None
         self.running = False
 

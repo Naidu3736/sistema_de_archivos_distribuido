@@ -1,4 +1,3 @@
-
 ```
 dfs
 ├─ client
@@ -22,12 +21,13 @@ dfs
 ├─ client_main.py
 ├─ core
 │  ├─ logger.py
+│  ├─ network_utils.py
 │  └─ protocol.py
 ├─ LICENSE
-├─ main.py
 ├─ README.md
 ├─ server
 │  ├─ block_table.py
+│  ├─ client_handlers
 │  ├─ file_server.py
 │  ├─ file_table.py
 │  ├─ handlers
@@ -42,7 +42,10 @@ dfs
 │  │  └─ __init__.py
 │  ├─ network_server.py
 │  ├─ nodes.py
+│  ├─ peer_2_peer
 │  └─ peer_2_peer.py
-└─ server_main.py
+├─ server_main.py
+└─ tests
+   └─ verify_handlers.py
 
 ```

@@ -90,12 +90,21 @@ class DownloadHandler:
         """Recibe y escribe todos los bloques en streaming"""
         total_bytes_received = 0
         
-        with open(file_path, 'wb') as output_file:
-            for block_index in range(block_count):
-                bytes_received = self._receive_single_block(output_file, block_index, block_count)
-                total_bytes_received += bytes_received
-        
-        return total_bytes_received
+        try:
+            with open(file_path, 'wb') as output_file:
+                for block_index in range(block_count):
+                    try:
+                        bytes_received = self._receive_single_block(output_file, block_index, block_count)
+                        total_bytes_received += bytes_received
+                    except Exception as e:
+                        logger.log("DOWNLOAD", f"Error recibiendo bloque {block_index+1}: {e}")
+                        # Continuar con el siguiente bloque en lugar de fallar completamente
+                        continue
+            
+            return total_bytes_received
+        except Exception as e:
+            logger.log("DOWNLOAD", f"Error escribiendo archivo: {e}")
+            return 0
 
     def _receive_single_block(self, output_file, block_index: int, total_blocks: int):
         """Recibe un solo bloque y lo escribe en el archivo"""

@@ -1,204 +1,143 @@
+# server/node_client.py (VERSIÓN CORREGIDA)
 import socket
-import threading
-from typing import Optional
+import json
 from core.protocol import Command, Response
 from core.network_utils import NetworkUtils
 from core.logger import logger
 
 class NodeClient:
-    """Cliente para comunicarse con nodos de almacenamiento - CONEXIONES EFÍMERAS"""
-    
     def __init__(self, timeout: int = 10):
         self.timeout = timeout
-    
-    def _create_connection(self, host: str, port: int) -> Optional[socket.socket]:
-        """Crea una conexión temporal al nodo"""
+
+    def ping(self, host: str, port: int) -> bool:
+        """Verifica si un nodo está activo"""
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(self.timeout)
-            sock.connect((host, port))
-            return sock
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(5)
+                sock.connect((host, port))
+                NetworkUtils.send_command(sock, Command.PING)
+                response = NetworkUtils.receive_response(sock)
+                return response == Response.SUCCESS
         except Exception as e:
-            logger.log("NODE_CLIENT", f"Error conectando a {host}:{port}: {e}")
-            return None
+            logger.log("NODE_CLIENT", f"Ping falló para {host}:{port}: {e}")
+            return False
 
     def send_block(self, host: str, port: int, block_data: bytes, block_info: dict) -> bool:
-        """Envía un bloque a un nodo usando conexión temporal"""
-        sock = self._create_connection(host, port)
-        if not sock:
-            return False
-        
+        """Envía un bloque a un nodo de almacenamiento"""
         try:
-            # 1. Enviar comando UPLOAD_BLOCK
-            NetworkUtils.send_command(sock, Command.UPLOAD_BLOCK)
-            
-            # 2. Enviar metadata del bloque
-            metadata = {
-                'block_id': block_info['block_id'],
-                'filename': block_info['filename'],
-                'size': len(block_data)
-            }
-            NetworkUtils.send_json(sock, metadata)
-            
-            # 3. Esperar confirmación
-            response = NetworkUtils.receive_response(sock)
-            if response != Response.SUCCESS:
-                return False
-            
-            # 4. Enviar datos del bloque (usando send_exact_bytes)
-            NetworkUtils.send_exact_bytes(sock, block_data)
-            
-            # 5. Esperar confirmación final
-            response = NetworkUtils.receive_response(sock)
-            return response == Response.UPLOAD_COMPLETE
-            
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(self.timeout)
+                sock.connect((host, port))
+                
+                # 1. Enviar comando UPLOAD_BLOCK
+                NetworkUtils.send_command(sock, Command.UPLOAD_BLOCK)
+                
+                # 2. Enviar metadatos del bloque
+                metadata = {
+                    'filename': block_info['filename'],
+                    'block_id': block_info['block_id'],
+                    'physical_number': block_info['physical_number'],
+                    'size': len(block_data),
+                    'is_replica': block_info.get('is_replica', False)
+                }
+                NetworkUtils.send_json(sock, metadata)
+                
+                # 3. Esperar confirmación del nodo
+                response = NetworkUtils.receive_response(sock)
+                if response != Response.SUCCESS:
+                    logger.log("NODE_CLIENT", f"Nodo rechazó bloque: {response}")
+                    return False
+                
+                # 4. Enviar datos del bloque
+                sock.sendall(block_data)
+                
+                # 5. Esperar confirmación final
+                final_response = NetworkUtils.receive_response(sock)
+                success = final_response == Response.UPLOAD_COMPLETE
+                
+                if success:
+                    logger.log("NODE_CLIENT", f"Bloque {block_info['physical_number']} enviado exitosamente a {host}:{port}")
+                else:
+                    logger.log("NODE_CLIENT", f"Error enviando bloque a {host}:{port}: {final_response}")
+                
+                return success
+                
         except Exception as e:
             logger.log("NODE_CLIENT", f"Error enviando bloque a {host}:{port}: {e}")
             return False
-        finally:
-            # SIEMPRE cerrar la conexión
-            try:
-                sock.close()
-            except:
-                pass
 
-    def get_block(self, host: str, port: int, block_info: dict) -> Optional[bytes]:
-        """Obtiene un bloque de un nodo usando conexión temporal"""
-        sock = self._create_connection(host, port)
-        if not sock:
-            return None
-        
+    def get_block(self, host: str, port: int, block_info: dict) -> bytes:
+        """Obtiene un bloque de un nodo de almacenamiento"""
         try:
-            # 1. Enviar comando DOWNLOAD_BLOCK
-            NetworkUtils.send_command(sock, Command.DOWNLOAD_BLOCK)
-            
-            # 2. Enviar metadata del bloque
-            metadata = {
-                'block_id': block_info['block_id'],
-                'filename': block_info['filename']
-            }
-            NetworkUtils.send_json(sock, metadata)
-            
-            # 3. Recibir tamaño del bloque
-            block_size = NetworkUtils.receive_file_size(sock)
-            if block_size == 0:
-                return None
-            
-            # 4. Recibir datos del bloque (usando receive_exact_bytes)
-            block_data = NetworkUtils.receive_exact_bytes(sock, block_size)
-            return block_data
-            
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(10.0)  # Timeout más generoso
+                sock.connect((host, port))
+                
+                # Enviar comando DOWNLOAD_BLOCK
+                NetworkUtils.send_command(sock, Command.DOWNLOAD_BLOCK)
+                
+                # Enviar metadatos del bloque
+                metadata = {
+                    'filename': block_info['filename'],
+                    'block_id': block_info['block_id'],
+                    'physical_number': block_info['physical_number']
+                }
+                NetworkUtils.send_json(sock, metadata)
+                
+                # Recibir respuesta del nodo
+                response = NetworkUtils.receive_response(sock)
+                if response != Response.SUCCESS:
+                    logger.log("NODE_CLIENT", f"Nodo respondió con error: {response}")
+                    return None
+                
+                # Recibir tamaño del bloque
+                block_size = NetworkUtils.receive_file_size(sock)
+                if block_size == 0:
+                    return None
+                
+                # Recibir datos del bloque
+                block_data = NetworkUtils.receive_exact_bytes(sock, block_size)
+                
+                logger.log("NODE_CLIENT", f"Bloque {block_info['physical_number']} recibido de {host}:{port} - {len(block_data)} bytes")
+                return block_data
+                
+        except socket.timeout:
+            logger.log("NODE_CLIENT", f"Timeout obteniendo bloque de {host}:{port}")
+            return None
         except Exception as e:
             logger.log("NODE_CLIENT", f"Error obteniendo bloque de {host}:{port}: {e}")
             return None
-        finally:
-            try:
-                sock.close()
-            except:
-                pass
 
     def delete_block(self, host: str, port: int, block_info: dict) -> bool:
-        """Elimina un bloque de un nodo usando conexión temporal"""
-        sock = self._create_connection(host, port)
-        if not sock:
-            return False
-        
+        """Elimina un bloque de un nodo de almacenamiento"""
         try:
-            # 1. Enviar comando DELETE_BLOCK
-            NetworkUtils.send_command(sock, Command.DELETE_BLOCK)
-            
-            # 2. Enviar metadata del bloque
-            metadata = {
-                'block_id': block_info['block_id'],
-                'filename': block_info['filename']
-            }
-            NetworkUtils.send_json(sock, metadata)
-            
-            # 3. Esperar confirmación
-            response = NetworkUtils.receive_response(sock)
-            return response == Response.SUCCESS
-            
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(self.timeout)
+                sock.connect((host, port))
+                
+                # 1. Enviar comando DELETE_BLOCK
+                NetworkUtils.send_command(sock, Command.DELETE_BLOCK)
+                
+                # 2. Enviar metadatos del bloque
+                metadata = {
+                    'filename': block_info['filename'],
+                    'block_id': block_info['block_id'],
+                    'physical_number': block_info['physical_number'],
+                    'is_replica': block_info.get('is_replica', False)
+                }
+                NetworkUtils.send_json(sock, metadata)
+                
+                # 3. Esperar respuesta
+                response = NetworkUtils.receive_response(sock)
+                success = response == Response.SUCCESS
+                
+                if success:
+                    logger.log("NODE_CLIENT", f"Bloque {block_info['physical_number']} eliminado de {host}:{port}")
+                else:
+                    logger.log("NODE_CLIENT", f"Error eliminando bloque de {host}:{port}: {response}")
+                
+                return success
+                
         except Exception as e:
             logger.log("NODE_CLIENT", f"Error eliminando bloque de {host}:{port}: {e}")
             return False
-        finally:
-            try:
-                sock.close()
-            except:
-                pass
-
-    def ping(self, host: str, port: int) -> bool:
-        """Verifica si el nodo está activo usando conexión temporal"""
-        sock = self._create_connection(host, port)
-        if not sock:
-            return False
-        
-        try:
-            NetworkUtils.send_command(sock, Command.PING)
-            response = NetworkUtils.receive_response(sock)
-            return response == Response.SUCCESS
-        except Exception as e:
-            return False
-        finally:
-            try:
-                sock.close()
-            except:
-                pass
-
-    def get_node_status(self, host: str, port: int) -> Optional[dict]:
-        """Obtiene el estado de un nodo"""
-        sock = self._create_connection(host, port)
-        if not sock:
-            return None
-        
-        try:
-            NetworkUtils.send_command(sock, Command.STORAGE_STATUS)
-            response = NetworkUtils.receive_response(sock)
-            if response != Response.SUCCESS:
-                return None
-            
-            # Recibir datos de estado en JSON
-            status_data = NetworkUtils.receive_json(sock)
-            return status_data
-            
-        except Exception as e:
-            logger.log("NODE_CLIENT", f"Error obteniendo estado de {host}:{port}: {e}")
-            return None
-        finally:
-            try:
-                sock.close()
-            except:
-                pass
-
-    def receive_file_from_node(self, host: str, port: int, block_info: dict, output_path: str) -> bool:
-        """Recibe un archivo completo de un nodo (para archivos grandes)"""
-        sock = self._create_connection(host, port)
-        if not sock:
-            return False
-        
-        try:
-            # 1. Enviar comando DOWNLOAD_BLOCK
-            NetworkUtils.send_command(sock, Command.DOWNLOAD_BLOCK)
-            
-            # 2. Enviar metadata del bloque
-            metadata = {
-                'block_id': block_info['block_id'],
-                'filename': block_info['filename']
-            }
-            NetworkUtils.send_json(sock, metadata)
-            
-            # 3. Recibir archivo en chunks
-            NetworkUtils.receive_file_chunked(sock, output_path)
-            
-            # Verificar que el archivo se recibió correctamente
-            import os
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
-            
-        except Exception as e:
-            logger.log("NODE_CLIENT", f"Error recibiendo archivo de {host}:{port}: {e}")
-            return False
-        finally:
-            try:
-                sock.close()
-            except:
-                pass

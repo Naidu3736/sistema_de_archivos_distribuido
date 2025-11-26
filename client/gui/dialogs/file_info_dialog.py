@@ -95,7 +95,7 @@ class FileInfoDialog(QDialog):
         self.block_table.setHorizontalHeaderLabels(headers)
         
         # Obtener y procesar la cadena de bloques
-        block_chain_data = self.file_info['block_chain']  # Ya viene en formato lista de tuplas
+        block_chain_data = self.file_info['block_chain']
         
         self.block_table.setRowCount(len(block_chain_data))
         
