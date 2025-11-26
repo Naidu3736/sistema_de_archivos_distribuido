@@ -1,6 +1,6 @@
+# nodes.py (VERSIÓN SINGLETON MEJORADA)
 import json
 import os
-import ipaddress
 import threading
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
@@ -10,209 +10,262 @@ from core.logger import logger
 class Node:
     host: str = "localhost"
     port: int = 8001
-    max_primary_mb: int = 800     # 80% para datos primarios
-    max_replica_mb: int = 200     # 20% para réplicas
-    primary_used_mb: int = 0
-    replica_used_mb: int = 0
+    max_primary_mb: int = 100      # Espacio total para datos primarios
+    max_replica_mb: int = 100      # Espacio total para réplicas
+    used_primary_mb: int = 0       # Espacio usado en datos primarios
+    used_replica_mb: int = 0       # Espacio usado en réplicas
 
     @property
-    def id(self) -> int:
-        try:
-            host_int = int(ipaddress.IPv4Address(self.host))
-        except ipaddress.AddressValueError:
-            host_int = 0x7F000001
-        return (host_int << 16) | self.port
+    def id(self) -> str:
+        return f"{self.host}:{self.port}"
 
     @property
-    def primary_available_mb(self) -> int:
-        return self.max_primary_mb - self.primary_used_mb
+    def available_primary_mb(self) -> int:
+        return self.max_primary_mb - self.used_primary_mb
 
     @property
-    def replica_available_mb(self) -> int:
-        return self.max_replica_mb - self.replica_used_mb
-
-    @property
-    def is_full_primary(self) -> bool:
-        return self.primary_available_mb <= 0
-
-    @property
-    def is_full_replica(self) -> bool:
-        return self.replica_available_mb <= 0
-
-    @property
-    def total_used_mb(self) -> int:
-        return self.primary_used_mb + self.replica_used_mb
-
-    @property
-    def total_available_mb(self) -> int:
-        return (self.max_primary_mb + self.max_replica_mb) - self.total_used_mb
-
-    @property
-    def max_total_mb(self) -> int:
-        return self.max_primary_mb + self.max_replica_mb
+    def available_replica_mb(self) -> int:
+        return self.max_replica_mb - self.used_replica_mb
 
 class NodeManager:
     _instance = None
     _lock = threading.Lock()
-
+    
     def __new__(cls, data_dir: str = "data"):
         with cls._lock:
             if cls._instance is None:
-                cls._instance = super().__new__(cls)
+                cls._instance = super(NodeManager, cls).__new__(cls)
                 cls._instance._initialized = False
             return cls._instance
-
+    
     def __init__(self, data_dir: str = "data"):
-        with self._lock:
-            if not self._initialized:
-                self.nodes: Dict[int, Node] = None
-                self.data_dir = data_dir
-                self.config_file = os.path.join(data_dir, "config_nodes.json")
-                self.lock = threading.RLock()
-                self.load_nodes()
-                self._initialized = True
+        if self._initialized:
+            return
+            
+        self.data_dir = data_dir
+        self.config_file = os.path.join(data_dir, "nodes.json")
+        self.lock = threading.RLock()
+        self.nodes: Dict[str, Node] = {}
+        self._initialized = True
+        
+        # Cargar nodos existentes al inicializar
+        self.load_nodes()
+        
+        logger.log("NODES", f"NodeManager inicializado. Nodos cargados: {len(self.nodes)}")
 
-    def load_nodes(self):
-        if os.path.exists(self.config_file):
-            with open(self.config_file, 'r') as f:
-                data = json.load(f)
-                for node_id_str, node_data in data.items():
-                    # Manejar compatibilidad con versiones anteriores
-                    if 'max_primary_mb' in node_data:
-                        # Nueva versión con espacios separados
-                        node = Node(
-                            host=node_data['host'],
-                            port=node_data['port'],
-                            max_primary_mb=node_data['max_primary_mb'],
-                            max_replica_mb=node_data['max_replica_mb'],
-                            primary_used_mb=node_data['primary_used_mb'],
-                            replica_used_mb=node_data['replica_used_mb']
-                        )
-                    else:
-                        # Versión anterior - migrar datos
-                        max_size_mb = node_data.get('max_size_mb', 100)
-                        used_size_mb = node_data.get('used_size_mb', 0)
-                        # Calcular proporción 80/20
-                        max_primary = int(max_size_mb * 0.8)
-                        max_replica = max_size_mb - max_primary
-                        # Asumir que todo el espacio usado es primario (para compatibilidad)
-                        node = Node(
-                            host=node_data['host'],
-                            port=node_data['port'],
-                            max_primary_mb=max_primary,
-                            max_replica_mb=max_replica,
-                            primary_used_mb=used_size_mb,
-                            replica_used_mb=0
-                        )
-                    self.nodes[int(node_id_str)] = node
-
-    def save_nodes(self):
-        os.makedirs(self.data_dir, exist_ok=True)
-        serializable_nodes = {
-            str(node_id): {
-                'host': node.host,
-                'port': node.port,
-                'max_primary_mb': node.max_primary_mb,
-                'max_replica_mb': node.max_replica_mb,
-                'primary_used_mb': node.primary_used_mb,
-                'replica_used_mb': node.replica_used_mb
-            }
-            for node_id, node in self.nodes.items()
-        }
-        with open(self.config_file, 'w') as f:
-            json.dump(serializable_nodes, f, indent=2, ensure_ascii=False)
-
-    def add_node(self, host: str, port: int, max_primary_mb: int = 80, max_replica_mb: int = 20) -> int:
+    def load_nodes(self) -> bool:
+        """Carga los nodos desde el archivo de configuración"""
         with self.lock:
-            node = Node(host=host, port=port, max_primary_mb=max_primary_mb, max_replica_mb=max_replica_mb)
+            if not os.path.exists(self.config_file):
+                logger.log("NODES", "Archivo de nodos no encontrado. Se iniciará sin nodos.")
+                self.nodes = {}
+                return True
+                
+            try:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if not content:
+                        logger.log("NODES", "Archivo de nodos está vacío")
+                        self.nodes = {}
+                        return True
+                    
+                    data = json.loads(content)
+                    loaded_count = 0
+                    
+                    for node_id, node_data in data.items():
+                        try:
+                            self.nodes[node_id] = Node(**node_data)
+                            loaded_count += 1
+                        except Exception as e:
+                            logger.log("NODES", f"Error cargando nodo {node_id}: {e}")
+                    
+                    logger.log("NODES", f"Nodos cargados exitosamente: {loaded_count}/{len(data)}")
+                    return True
+                    
+            except json.JSONDecodeError as e:
+                logger.log("NODES", f"Error decodificando JSON de nodos: {e}")
+                self.nodes = {}
+                return False
+            except Exception as e:
+                logger.log("NODES", f"Error cargando nodos: {e}")
+                self.nodes = {}
+                return False
+
+    def save_nodes(self) -> bool:
+        """Guarda los nodos en el archivo de configuración"""
+        with self.lock:
+            try:
+                os.makedirs(self.data_dir, exist_ok=True)
+                with open(self.config_file, 'w', encoding='utf-8') as f:
+                    # Usar asdict para serializar correctamente los dataclasses
+                    nodes_data = {node_id: asdict(node) for node_id, node in self.nodes.items()}
+                    json.dump(nodes_data, f, indent=2, ensure_ascii=False)
+                
+                logger.log("NODES", f"Nodos guardados: {len(self.nodes)}")
+                return True
+            except Exception as e:
+                logger.log("NODES", f"Error guardando nodos: {e}")
+                return False
+
+    def add_node(self, host: str, port: int, max_primary_mb: int = 100, max_replica_mb: int = 100) -> str:
+        """Agrega un nuevo nodo al manager"""
+        with self.lock:
+            node = Node(
+                host=host, 
+                port=port, 
+                max_primary_mb=max_primary_mb, 
+                max_replica_mb=max_replica_mb
+            )
+            
+            if node.id in self.nodes:
+                logger.log("NODES", f"El nodo {node.id} ya existe")
+                return node.id
+            
             self.nodes[node.id] = node
             self.save_nodes()
+            
+            logger.log("NODES", 
+                f"Nodo agregado: {node.id} "
+                f"(Primario: {max_primary_mb}MB, Réplica: {max_replica_mb}MB)"
+            )
             return node.id
 
-    def allocate_primary_space(self, node_id: int, size_mb: int) -> bool:
-        """Asigna espacio para datos primarios (del nodo dueño)"""
+    def update_node(self, node_id: str, **kwargs) -> bool:
+        """Actualiza la configuración de un nodo existente"""
         with self.lock:
-            if node_id in self.nodes and not self.nodes[node_id].is_full_primary:
-                new_used = self.nodes[node_id].primary_used_mb + size_mb
-                if new_used <= self.nodes[node_id].max_primary_mb:
-                    self.nodes[node_id].primary_used_mb = new_used
+            if node_id not in self.nodes:
+                logger.log("NODES", f"Nodo {node_id} no encontrado para actualizar")
+                return False
+            
+            node = self.nodes[node_id]
+            valid_fields = {'host', 'port', 'max_primary_mb', 'max_replica_mb'}
+            
+            for field, value in kwargs.items():
+                if field in valid_fields and hasattr(node, field):
+                    setattr(node, field, value)
+            
+            self.save_nodes()
+            logger.log("NODES", f"Nodo {node_id} actualizado")
+            return True
+
+    def remove_node(self, node_id: str) -> bool:
+        """Elimina un nodo del manager"""
+        with self.lock:
+            if node_id not in self.nodes:
+                logger.log("NODES", f"Nodo {node_id} no encontrado")
+                return False
+            
+            # Verificar si el nodo tiene espacio usado
+            node = self.nodes[node_id]
+            if node.used_primary_mb > 0 or node.used_replica_mb > 0:
+                logger.log("NODES", 
+                    f"Advertencia: Nodo {node_id} tiene espacio usado "
+                    f"(Primario: {node.used_primary_mb}MB, Réplica: {node.used_replica_mb}MB)"
+                )
+            
+            del self.nodes[node_id]
+            self.save_nodes()
+            logger.log("NODES", f"Nodo eliminado: {node_id}")
+            return True
+
+    def get_total_capacity(self) -> Dict[str, int]:
+        """Obtiene la capacidad total del cluster (suma de todos los nodos)"""
+        with self.lock:
+            total_primary = sum(node.max_primary_mb for node in self.nodes.values())
+            total_replica = sum(node.max_replica_mb for node in self.nodes.values())
+            total_used_primary = sum(node.used_primary_mb for node in self.nodes.values())
+            total_used_replica = sum(node.used_replica_mb for node in self.nodes.values())
+            
+            return {
+                'total_primary_mb': total_primary,
+                'total_replica_mb': total_replica,
+                'total_used_primary_mb': total_used_primary,
+                'total_used_replica_mb': total_used_replica,
+                'total_available_primary_mb': total_primary - total_used_primary,
+                'total_available_replica_mb': total_replica - total_used_replica,
+                'total_capacity_mb': total_primary  # Capacidad total = espacio primario total
+            }
+
+    # Los siguientes métodos se mantienen igual que antes
+    def allocate_primary(self, node_id: str, size_mb: int) -> bool:
+        """Asigna espacio para datos primarios en un nodo"""
+        with self.lock:
+            if node_id in self.nodes:
+                node = self.nodes[node_id]
+                if node.used_primary_mb + size_mb <= node.max_primary_mb:
+                    node.used_primary_mb += size_mb
                     self.save_nodes()
+                    logger.log("NODES", f"Espacio primario asignado: {size_mb}MB en {node_id}")
                     return True
             return False
 
-    def allocate_replica_space(self, node_id: int, size_mb: int) -> bool:
-        """Asigna espacio para datos de réplica (de otros nodos)"""
+    def allocate_replica(self, node_id: str, size_mb: int) -> bool:
+        """Asigna espacio para réplicas en un nodo"""
         with self.lock:
-            if node_id in self.nodes and not self.nodes[node_id].is_full_replica:
-                new_used = self.nodes[node_id].replica_used_mb + size_mb
-                if new_used <= self.nodes[node_id].max_replica_mb:
-                    self.nodes[node_id].replica_used_mb = new_used
+            if node_id in self.nodes:
+                node = self.nodes[node_id]
+                if node.used_replica_mb + size_mb <= node.max_replica_mb:
+                    node.used_replica_mb += size_mb
                     self.save_nodes()
+                    logger.log("NODES", f"Espacio réplica asignado: {size_mb}MB en {node_id}")
                     return True
             return False
 
-    def free_primary_space(self, node_id: int, size_mb: int) -> bool:
+    def free_primary(self, node_id: str, size_mb: int) -> bool:
         """Libera espacio de datos primarios"""
         with self.lock:
             if node_id in self.nodes:
-                self.nodes[node_id].primary_used_mb = max(0, self.nodes[node_id].primary_used_mb - size_mb)
+                node = self.nodes[node_id]
+                node.used_primary_mb = max(0, node.used_primary_mb - size_mb)
                 self.save_nodes()
                 return True
             return False
 
-    def free_replica_space(self, node_id: int, size_mb: int) -> bool:
-        """Libera espacio de datos de réplica"""
+    def free_replica(self, node_id: str, size_mb: int) -> bool:
+        """Libera espacio de réplicas"""
         with self.lock:
             if node_id in self.nodes:
-                self.nodes[node_id].replica_used_mb = max(0, self.nodes[node_id].replica_used_mb - size_mb)
+                node = self.nodes[node_id]
+                node.used_replica_mb = max(0, node.used_replica_mb - size_mb)
                 self.save_nodes()
                 return True
             return False
 
-    def free_space(self, node_id: int, size_mb: int, is_primary: bool) -> bool:
-        """Libera espacio (versión genérica para compatibilidad)"""
-        if is_primary:
-            return self.free_primary_space(node_id, size_mb)
-        else:
-            return self.free_replica_space(node_id, size_mb)
-
-    def get_available_primary_nodes(self) -> List[int]:
+    def get_primary_candidates(self) -> List[str]:
         """Obtiene nodos con espacio disponible para datos primarios"""
         with self.lock:
-            return [node_id for node_id, node in self.nodes.items() if not node.is_full_primary]
+            return [
+                node_id for node_id, node in self.nodes.items() 
+                if node.available_primary_mb > 0
+            ]
 
-    def get_available_replica_nodes(self) -> List[int]:
+    def get_replica_candidates(self, exclude_nodes: List[str] = None) -> List[str]:
         """Obtiene nodos con espacio disponible para réplicas"""
         with self.lock:
-            return [node_id for node_id, node in self.nodes.items() if not node.is_full_replica]
+            exclude_set = set(exclude_nodes or [])
+            candidates = [
+                node_id for node_id, node in self.nodes.items()
+                if node.available_replica_mb > 0 and node_id not in exclude_set
+            ]
+            # Ordenar por espacio disponible (descendente)
+            candidates.sort(key=lambda nid: self.nodes[nid].available_replica_mb, reverse=True)
+            return candidates
 
-    def get_available_nodes(self) -> List[int]:
-        """Obtiene nodos con espacio disponible total (para compatibilidad)"""
-        with self.lock:
-            return [node_id for node_id, node in self.nodes.items() if node.total_available_mb > 0]
+    def get_best_primary_node(self) -> Optional[str]:
+        """Obtiene el mejor nodo para datos primarios"""
+        candidates = self.get_primary_candidates()
+        if not candidates:
+            return None
+        # Elegir el nodo con más espacio disponible
+        return max(candidates, key=lambda nid: self.nodes[nid].available_primary_mb)
 
-    def get_best_primary_node(self) -> Optional[int]:
-        """Obtiene el mejor nodo para datos primarios (más espacio disponible)"""
-        with self.lock:
-            available_nodes = self.get_available_primary_nodes()
-            if not available_nodes:
-                return None
-            # Ordenar por espacio disponible descendente
-            available_nodes.sort(key=lambda node_id: self.nodes[node_id].primary_available_mb, reverse=True)
-            return available_nodes[0]
-
-    def get_best_replica_nodes(self, count: int = 2) -> List[int]:
+    def get_best_replica_nodes(self, count: int = 2, exclude_nodes: List[str] = None) -> List[str]:
         """Obtiene los mejores nodos para réplicas"""
-        with self.lock:
-            available_nodes = self.get_available_replica_nodes()
-            if not available_nodes:
-                return []
-            # Ordenar por espacio disponible descendente
-            available_nodes.sort(key=lambda node_id: self.nodes[node_id].replica_available_mb, reverse=True)
-            return available_nodes[:count]
+        candidates = self.get_replica_candidates(exclude_nodes)
+        return candidates[:count]
 
-    def get_node_info(self, node_id: int) -> Optional[Dict]:
-        """Obtiene información del nodo actual"""
+    def get_node_info(self, node_id: str) -> Optional[Dict]:
+        """Obtiene información de un nodo específico"""
         with self.lock:
             if node_id in self.nodes:
                 node = self.nodes[node_id]
@@ -222,98 +275,36 @@ class NodeManager:
                     'port': node.port,
                     'max_primary_mb': node.max_primary_mb,
                     'max_replica_mb': node.max_replica_mb,
-                    'primary_used_mb': node.primary_used_mb,
-                    'replica_used_mb': node.replica_used_mb,
-                    'primary_available_mb': node.primary_available_mb,
-                    'replica_available_mb': node.replica_available_mb,
-                    'total_used_mb': node.total_used_mb,
-                    'total_available_mb': node.total_available_mb,
-                    'max_total_mb': node.max_total_mb,
-                    'is_full_primary': node.is_full_primary,
-                    'is_full_replica': node.is_full_replica
+                    'used_primary_mb': node.used_primary_mb,
+                    'used_replica_mb': node.used_replica_mb,
+                    'available_primary_mb': node.available_primary_mb,
+                    'available_replica_mb': node.available_replica_mb
                 }
             return None
 
     def get_all_nodes(self) -> List[Dict]:
-        """Lista todos los nodos con información completa"""
+        """Obtiene información de todos los nodos"""
         with self.lock:
             return [self.get_node_info(node_id) for node_id in self.nodes.keys()]
-        
-    def get_all_ids(self) -> List[int]:
-        """Lista los ID's de todos los nodos"""
-        with self.lock:
-            return List(self.nodes.keys())
 
-    def get_id_of_node(self, host: str, port: int) -> int:
-        """Obtiene el id del nodo actual"""
-        node = Node(host=host, port=port)
-        return node.id
-    
-    def get_node_address(self, node_id: int) -> Optional[Tuple[str, int]]:
-        """Obtiene la dirección de un nodo"""
-        with self.lock:
-            if node_id in self.nodes:
-                node = self.nodes[node_id]
-                return (node.host, node.port)
-            return None
-        
-    def get_node_count(self) -> int:
-        """Obtiene el número total de nodos"""
-        with self.lock:
-            return len(self.nodes)
+    def get_stats(self) -> Dict:
+        """Obtiene estadísticas del cluster"""
+        stats = self.get_total_capacity()
+        stats.update({
+            'total_nodes': len(self.nodes),
+            'active_nodes': len(self.nodes)  # Por ahora todos se consideran activos
+        })
+        return stats
 
-    def update_node_usage(self, node_id: int, primary_delta_mb: int = 0, replica_delta_mb: int = 0) -> bool:
-        """Actualiza el uso de espacio de un nodo (para sincronización)"""
+    def reset_usage(self) -> bool:
+        """Resetea el uso de todos los nodos (útil para testing)"""
         with self.lock:
-            if node_id not in self.nodes:
-                return False
-            
-            node = self.nodes[node_id]
-            new_primary = max(0, node.primary_used_mb + primary_delta_mb)
-            new_replica = max(0, node.replica_used_mb + replica_delta_mb)
-            
-            # Verificar límites
-            if new_primary > node.max_primary_mb or new_replica > node.max_replica_mb:
-                return False
-            
-            node.primary_used_mb = new_primary
-            node.replica_used_mb = new_replica
+            for node in self.nodes.values():
+                node.used_primary_mb = 0
+                node.used_replica_mb = 0
             self.save_nodes()
+            logger.log("NODES", "Uso de todos los nodos reseteado a cero")
             return True
 
-    def remove_node(self, node_id: int) -> bool:
-        """Elimina un nodo del manager"""
-        with self.lock:
-            if node_id in self.nodes:
-                del self.nodes[node_id]
-                self.save_nodes()
-                return True
-            return False
-    
-    def get_total_capacity(self) -> int:
-        """Obtiene la memoria total del sistema"""
-        with self.lock:
-            return sum(node.max_total_mb for node in self.nodes.values()) if self.nodes else 0
-
-    def get_statistics(self) -> Dict[str, int]:
-        """Obtiene estadísticas totales del cluster"""
-        with self.lock:
-            total_primary_capacity = sum(node.max_primary_mb for node in self.nodes.values())
-            total_replica_capacity = sum(node.max_replica_mb for node in self.nodes.values())
-            total_primary_used = sum(node.primary_used_mb for node in self.nodes.values())
-            total_replica_used = sum(node.replica_used_mb for node in self.nodes.values())
-            
-            return {
-                'total_primary_capacity_mb': total_primary_capacity,
-                'total_replica_capacity_mb': total_replica_capacity,
-                'total_capacity_mb': total_primary_capacity + total_replica_capacity,
-                'total_primary_used_mb': total_primary_used,
-                'total_replica_used_mb': total_replica_used,
-                'total_used_mb': total_primary_used + total_replica_used,
-                'total_primary_available_mb': total_primary_capacity - total_primary_used,
-                'total_replica_available_mb': total_replica_capacity - total_replica_used,
-                'node_count': len(self.nodes)
-            }
-        
-# Crear instancia global
+# Instancia global singleton
 node_manager = NodeManager()

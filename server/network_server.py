@@ -1,30 +1,42 @@
+# network_server.py (CORREGIDO)
 import socket
 import threading
 from server.file_server import FileServer
-from server.handlers.command_handler import CommandHandler
 from core.protocol import Command
 from core.logger import logger
 
 class NetworkServer:
-    def __init__(self, host='0.0.0.0', port=8001, capacity_mb: int = 1000, number_clients: int = 20): 
+    def __init__(self, host='0.0.0.0', port=8001, capacity_mb: int = 1000, number_clients: int = 20):
         self.host = host
         self.port = port
         self.number_clients = number_clients
+        self.file_server = FileServer(capacity_mb=capacity_mb)
         self.socket = None
         self.running = False
-        self.file_server = FileServer(capacity_mb=capacity_mb)
-        self.command_handler = CommandHandler(self.file_server)
-    
-    def start(self):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.bind((self.host, self.port))
-        self.socket.listen(5)
-        self.socket.settimeout(1.0)
 
-        self.running = True
-        
-        logger.log("SERVER", f"SERVER_STARTED: host={self.host}, port={self.port}")
-        logger.log("SERVER", f"Servidor escuchando en {self.host}:{self.port}")
+    def start(self):
+        """Inicia el servidor"""
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.socket.bind((self.host, self.port))
+            self.socket.listen(self.number_clients)
+            self.socket.settimeout(1.0)  # Timeout para poder verificar self.running
+            self.running = True
+            
+            logger.log("SERVER", f"Servidor iniciado en {self.host}:{self.port}")
+            logger.log("SERVER", f"Capacidad: {self.file_server.capacity_mb}MB")
+            logger.log("SERVER", f"Máximo de clientes: {self.number_clients}")
+            
+            self._accept_connections()
+            
+        except Exception as e:
+            logger.log("SERVER", f"Error iniciando servidor: {e}")
+            self.stop()
+
+    def _accept_connections(self):
+        """Acepta conexiones de clientes"""
+        logger.log("SERVER", "Esperando conexiones...")
         
         while self.running:
             try:
@@ -42,12 +54,10 @@ class NetworkServer:
             except Exception as e:
                 logger.log("SERVER", f"Error inesperado: {e}")
                 break
-                
-    
+
     def _handle_new_client(self, client_socket: socket.socket, addr):
         """Maneja una nueva conexión de cliente"""
         logger.log("NETWORK", f"CLIENT_CONNECTED: client_address={addr[0]}, client_port={addr[1]}")
-        logger.log("NETWORK", f"Nuevo cliente conectado: {addr[0]}:{addr[1]}")
         
         # Manejar cliente en hilo separado
         client_thread = threading.Thread(
@@ -58,21 +68,21 @@ class NetworkServer:
         client_thread.start()
 
     def _client_session(self, client_socket: socket.socket, addr):
-        """Maneja la sesión de un cliente específico - CONEXIÓN PERSISTENTE"""
-        logger.log("NETWORK", f"Sesión persistente iniciada con cliente {addr}")
+        """Maneja la sesión de un cliente específico"""
+        logger.log("NETWORK", f"Sesión iniciada con cliente {addr}")
         
         try:
             # Configurar timeout para no bloquear indefinidamente
-            client_socket.settimeout(None)
+            client_socket.settimeout(30.0)  # 30 segundos de timeout
             
             while self.running:
                 try:
                     # Esperar comandos del cliente
                     command_bytes = client_socket.recv(4)
                     
-                    # Si no hay datos (timeout), continuar esperando
+                    # Si no hay datos, conexión cerrada
                     if not command_bytes:
-                        logger.log("NETWORK", f"Conexión perdida con cliente {addr}")
+                        logger.log("NETWORK", f"Conexión cerrada por cliente {addr}")
                         break
                     
                     # Procesar el comando
@@ -82,7 +92,7 @@ class NetworkServer:
                     # Timeout normal, continuar esperando más comandos
                     continue
                 except ConnectionResetError:
-                    logger.log("NETWORK", f"Cliente {addr} cerró la conexión")
+                    logger.log("NETWORK", f"Cliente {addr} cerró la conexión abruptamente")
                     break
                 except BrokenPipeError:
                     logger.log("NETWORK", f"Conexión rota con cliente {addr}")
@@ -94,7 +104,7 @@ class NetworkServer:
         except Exception as e:
             logger.log("NETWORK", f"Error en sesión con cliente {addr}: {str(e)}")
         finally:
-            # Solo cerrar cuando realmente termine la sesión
+            # Cerrar conexión
             try:
                 client_socket.close()
                 logger.log("NETWORK", f"Conexión cerrada con cliente {addr}")
@@ -107,7 +117,23 @@ class NetworkServer:
             command = Command.from_bytes(command_bytes)
             logger.log("COMMAND", f"Comando de {addr}: {command.name}")
 
-            self.command_handler.handle_command(client_socket, command)
+            # Delegar al file_server según el comando
+            if command == Command.UPLOAD:
+                self.file_server.process_upload_request(client_socket)
+            elif command == Command.DOWNLOAD:
+                self.file_server.process_download_request(client_socket)
+            elif command == Command.DELETE:
+                self.file_server.process_delete_request(client_socket)
+            elif command == Command.LIST:
+                self.file_server.process_list_request(client_socket)
+            elif command == Command.INFO:
+                self.file_server.process_info_request(client_socket)
+            elif command == Command.STORAGE_STATUS:
+                self.file_server.process_storage_status_request(client_socket)
+            elif command == Command.BLOCK_TABLE:
+                self.file_server.process_block_table_request(client_socket)
+            else:
+                logger.log("COMMAND", f"Comando no reconocido: {command}")
             
         except ValueError as e:
             logger.log("COMMAND", f"Comando inválido de {addr}: {e}")
@@ -116,7 +142,9 @@ class NetworkServer:
 
     def stop(self):
         """Detiene el servidor"""
+        logger.log("SERVER", "Deteniendo servidor...")
         self.running = False
         if self.socket:
             self.socket.close()
-            logger.log("SERVER", "Servidor detenido")
+        self.file_server.cleanup()
+        logger.log("SERVER", "Servidor detenido")
