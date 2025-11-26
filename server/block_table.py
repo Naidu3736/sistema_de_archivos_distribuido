@@ -41,6 +41,9 @@ class BlockTable:
         self._initialize_blocks()
         self._load_from_disk()
 
+        if not os.path.exists(os.path.join(data_dir, "block_table.pkl")):
+            self._save_to_disk()
+
         # Thread para limpieza automatica de reservas expiradas
         self.cleanup_thread = threading.Thread(target=self._cleanup_reservations_worker, daemon=True)
         self.cleanup_thread.start()

@@ -38,6 +38,7 @@ class FileServer:
 
         cluster_capacity = self.node_manager.get_total_capacity()
         capacity_mb = cluster_capacity['total_capacity_mb']
+        logger.log("DEBUG", f"capacidad: {capacity_mb}")
     
         self.capacity_mb = capacity_mb
         
@@ -124,13 +125,16 @@ class FileServer:
     # =========================================================================
 
     def process_upload_request(self, client: socket.socket):
-        return self.upload_handler.process(client)
+        with self.file_operation_lock:
+            return self.upload_handler.process(client)
 
     def process_download_request(self, client: socket.socket):
-        return self.download_handler.process(client)
+        with self.file_operation_lock:
+            return self.download_handler.process(client)
 
     def process_delete_request(self, client: socket.socket):
-        return self.delete_handler.process(client)
+        with self.file_operation_lock:
+            return self.delete_handler.process(client)
 
     def process_list_request(self, client: socket.socket):
         return self.list_handler.process(client)

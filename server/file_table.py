@@ -66,6 +66,9 @@ class FileTable:
         
         # Cargar datos existentes
         self._load_from_disk()
+        
+        if not self.files:
+            self._save_to_disk()
 
     def _load_from_disk(self):
         """Carga la tabla desde disco"""
