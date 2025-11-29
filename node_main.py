@@ -57,7 +57,7 @@ def main():
     capacity_mb = int(capacity_input) if capacity_input else 500
     
     # Crear nombre único para el directorio basado en el puerto
-    storage_dir = f"{storage_dir}_{port}"
+    storage_dir = f"{storage_dir}"
     
     print("\n" + "="*50)
     print("CONFIGURACIÓN DEL NODO:")
