@@ -49,7 +49,7 @@ class NodeClient:
                     return False
                 
                 # 4. Enviar datos del bloque
-                sock.sendall(block_data)
+                sock.send(block_data)
                 
                 # 5. Esperar confirmación final
                 final_response = NetworkUtils.receive_response(sock)
@@ -96,7 +96,7 @@ class NodeClient:
                     return None
                 
                 # Recibir datos del bloque
-                block_data = NetworkUtils.receive_exact_bytes(sock, block_size)
+                block_data = NetworkUtils.receive_complete_data(sock, block_size)
                 
                 logger.log("NODE_CLIENT", f"Bloque {block_info['physical_number']} recibido de {host}:{port} - {len(block_data)} bytes")
                 return block_data

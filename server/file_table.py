@@ -203,3 +203,7 @@ class FileTable:
         ]
         # ordenar por nombre para salida consistente
         return sorted(files_list, key=lambda x: x['filename'])
+    
+    def file_exists(self, filename: str) -> bool:
+        """Verifica si un archivo ya existe en el sistema por nombre"""
+        return filename in self.name_to_id

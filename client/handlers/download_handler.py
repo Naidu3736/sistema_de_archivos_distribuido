@@ -82,7 +82,7 @@ class DownloadHandler:
         filename = NetworkUtils.receive_filename(self.client.socket)
         
         # Recibir cantidad de bloques
-        block_count = int.from_bytes(self.client.socket.recv(4), 'big')
+        block_count = NetworkUtils.receive_int(self.client.socket)
         
         return filename, block_count
 
@@ -109,7 +109,7 @@ class DownloadHandler:
     def _receive_single_block(self, output_file, block_index: int, total_blocks: int):
         """Recibe un solo bloque y lo escribe en el archivo"""
         # Recibir tamaño del bloque
-        block_size = int.from_bytes(self.client.socket.recv(8), 'big')
+        block_size = NetworkUtils.receive_file_size(self.client.socket)
         
         if block_size == 0:
             logger.log("ERROR", f"Bloque {block_index+1} faltante en el servidor")

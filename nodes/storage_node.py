@@ -277,7 +277,7 @@ class StorageNode:
                 chunk = f.read(self.BUFFER_SIZE)
                 if not chunk:
                     break
-                client_socket.sendall(chunk)
+                client_socket.send(chunk)
 
     def stop(self):
         """Detiene el nodo de almacenamiento"""

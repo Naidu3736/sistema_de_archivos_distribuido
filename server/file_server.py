@@ -129,8 +129,7 @@ class FileServer:
             return self.upload_handler.process(client)
 
     def process_download_request(self, client: socket.socket):
-        with self.file_operation_lock:
-            return self.download_handler.process(client)
+        return self.download_handler.process(client)
 
     def process_delete_request(self, client: socket.socket):
         with self.file_operation_lock:
@@ -155,14 +154,15 @@ class FileServer:
     def get_storage_status(self):
         """Obtiene el estado completo del almacenamiento"""
         block_status = self.block_table.get_system_status()
+        used_space = sum(file['size'] for file in self.file_table.get_all_files())
         
         return {
             "total_blocks": block_status["total_blocks"],
             "used_blocks": block_status["used_blocks"],
             "free_blocks": block_status["free_blocks"],
             "usage_percent": block_status["usage_percent"],
-            "file_count": len(self.file_table.files),
-            "total_files_size": sum(file_info.total_size for file_info in self.file_table.files.values())
+            "file_count": len(self.file_table.get_all_files()),
+            "used_mb": used_space / self.BLOCK_SIZE
         }
     
     def get_file_info(self, filename: str):

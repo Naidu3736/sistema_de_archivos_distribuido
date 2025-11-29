@@ -50,17 +50,6 @@ class UploadHandler:
             self.client.disconnect()
             return False
 
-    def _send_file_metadata(self, filename: str, file_size: int):
-        """Envía metadatos del archivo al servidor"""
-        filename_bytes = filename.encode('utf-8')
-        
-        # Enviar nombre y tamaño
-        self.client.socket.send(len(filename_bytes).to_bytes(4, 'big'))
-        self.client.socket.send(filename_bytes)
-        self.client.socket.send(file_size.to_bytes(8, 'big'))
-        
-        logger.log("UPLOAD", f"Metadata enviada: {filename} - {file_size} bytes")
-
     def _stream_file_content(self, file_path: str, file_size: int):
         """Envía el contenido completo del archivo al servidor en streaming"""
         filename = os.path.basename(file_path)

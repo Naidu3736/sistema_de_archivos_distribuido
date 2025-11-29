@@ -51,7 +51,7 @@ class DownloadHandler:
 
             # Enviar metadatos del archivo (LO QUE EL CLIENTE ESPERA)
             NetworkUtils.send_filename(client, filename)
-            # El cliente espera: filename + block_count (NO file_size)
+            # El cliente espera: filename + block_count
             client.send(len(block_chain).to_bytes(4, 'big'))  # Número de bloques
 
             # Enviar cada bloque
@@ -64,7 +64,7 @@ class DownloadHandler:
                 if block_data:
                     # Enviar tamaño del bloque y luego los datos
                     NetworkUtils.send_file_size(client, len(block_data))
-                    client.sendall(block_data)
+                    client.send(block_data)
                     total_sent += len(block_data)
                     logger.log("DOWNLOAD", f"Bloque {i+1}/{len(block_chain)} enviado - {len(block_data)} bytes")
                 else:

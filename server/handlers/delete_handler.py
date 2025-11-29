@@ -1,4 +1,3 @@
-# delete_handler.py (versión actualizada para nodos)
 import os
 import socket
 from core.protocol import Response
@@ -22,8 +21,7 @@ class DeleteHandler:
                 return
 
             # Fase 2: Eliminación distribuida
-            with self.server.file_operation_lock:
-                success = self._delete_file_distributed(filename, file_info)
+            success = self._delete_file_distributed(filename, file_info)
             
             if success:
                 NetworkUtils.send_response(client, Response.DELETE_COMPLETE)

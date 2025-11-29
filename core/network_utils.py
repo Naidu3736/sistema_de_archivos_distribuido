@@ -106,16 +106,6 @@ class NetworkUtils:
         NetworkUtils.send_file_size(socket, file_size)
 
     @staticmethod
-    def send_exact_bytes(socket: socket.socket, data: bytes):
-        """Envía datos binarios garantizando entrega completa"""
-        NetworkUtils.send_complete_data(socket, data)
-
-    @staticmethod
-    def receive_exact_bytes(socket: socket.socket, size: int) -> bytes:
-        """Recibe exactamente size bytes de datos binarios"""
-        return NetworkUtils.receive_complete_data(socket, size)
-
-    @staticmethod
     def send_string(socket: socket.socket, text: str):
         """Envía una cadena de texto"""
         text_bytes = text.encode('utf-8')

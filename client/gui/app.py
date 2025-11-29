@@ -510,9 +510,7 @@ class FileManagerGUI(QMainWindow):
                         self.left_panel.usage_label.setStyleSheet("font-weight: bold; color: #88cc88;")
                 
                 # Espacio usado (estimado)
-                block_size = 4096  # Asumimos 4KB por bloque
-                used_mb = (status['used_blocks'] * block_size) / (1024 * 1024)
-                self.left_panel.used_space_label.setText(f"{used_mb:.2f} MB")
+                self.left_panel.used_space_label.setText(f"{status['used_mb']:.2f} MB")
                 
         except Exception as e:
             logger.log("GUI", f"Error updating status: {str(e)}")
