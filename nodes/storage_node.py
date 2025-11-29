@@ -12,7 +12,7 @@ class StorageNode:
     """Nodo de almacenamiento que guarda bloques en estructura organizada"""
     
     def __init__(self, host='0.0.0.0', port=8002, storage_base_dir: str = "blocks", 
-                 capacity_mb: int = 500, buffer_size: int = 4096):
+                 capacity_mb: int = 500, buffer_size: int = 64 * 1024):
         self.host = host
         self.port = port
         self.storage_base_dir = storage_base_dir
@@ -46,7 +46,7 @@ class StorageNode:
     def start(self):
         """Inicia el servidor del nodo de almacenamiento"""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.TCP_NODELAY, 1)
         self.socket.bind((self.host, self.port))
         self.socket.listen(5)
         self.socket.settimeout(1.0)

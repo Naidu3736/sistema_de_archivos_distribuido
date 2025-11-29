@@ -8,7 +8,7 @@ from client.handlers import (
 )
 
 class FileClient:
-    def __init__(self, host_server: str = "0.0.0.0", port_server: int = 8001, buffer_size: int = 4096):
+    def __init__(self, host_server: str = "0.0.0.0", port_server: int = 8001, buffer_size: int = 64 * 1024):
         # =========================================================================
         # CONFIGURACIÓN INICIAL DEL CLIENTE
         # =========================================================================
@@ -40,6 +40,7 @@ class FileClient:
             
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.TCP_NODELAY, 1)
             self.socket.connect((self.host_server, self.port_server))
             self.is_connected = True
             

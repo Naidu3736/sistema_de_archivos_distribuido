@@ -13,6 +13,7 @@ class NodeClient:
         """Verifica si un nodo está activo"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.TCP_NODELAY, 1)
                 sock.settimeout(5)
                 sock.connect((host, port))
                 NetworkUtils.send_command(sock, Command.PING)
@@ -26,6 +27,7 @@ class NodeClient:
         """Envía un bloque a un nodo de almacenamiento"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.TCP_NODELAY, 1)
                 sock.settimeout(self.timeout)
                 sock.connect((host, port))
                 
@@ -70,6 +72,7 @@ class NodeClient:
         """Obtiene un bloque de un nodo de almacenamiento"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.TCP_NODELAY, 1)
                 sock.settimeout(10.0)  # Timeout más generoso
                 sock.connect((host, port))
                 
@@ -112,6 +115,7 @@ class NodeClient:
         """Elimina un bloque de un nodo de almacenamiento"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.TCP_NODELAY, 1)
                 sock.settimeout(self.timeout)
                 sock.connect((host, port))
                 

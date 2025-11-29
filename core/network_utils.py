@@ -8,7 +8,7 @@ from core.protocol import Command, Response
 class NetworkUtils:
     """Utilidades compartidas para comunicación de red"""
     
-    BUFFER_SIZE = 4096
+    BUFFER_SIZE = 64 * 1024
 
     @staticmethod
     def send_command(socket: socket.socket, command: Command):

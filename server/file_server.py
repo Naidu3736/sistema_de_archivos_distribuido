@@ -15,7 +15,7 @@ from server.handlers import (
 
 class FileServer:
     def __init__(self, temp_dir: str = "temp", 
-                 buffer_size: int = 4096, data_dir: str = "data"):
+                 buffer_size: int = 64 * 1024, data_dir: str = "data"):
         # =========================================================================
         # CONFIGURACIÓN INICIAL DEL SERVIDOR
         self.temp_dir = temp_dir
@@ -129,7 +129,8 @@ class FileServer:
             return self.upload_handler.process(client)
 
     def process_download_request(self, client: socket.socket):
-        return self.download_handler.process(client)
+        with self.file_operation_lock:
+            return self.download_handler.process(client)
 
     def process_delete_request(self, client: socket.socket):
         with self.file_operation_lock:
