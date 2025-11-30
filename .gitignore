@@ -1,0 +1,26 @@
+# Dependencias de Python
+__pycache__/
+*.pyc
+.env
+.venv/
+
+# Logs
+logs/
+
+# BLoques
+blocks/
+
+# Datos
+data/
+
+# Archivos temporales
+temp/ 
+
+# Archivos de IDE
+.vscode/
+
+# Build/compilación
+dist/
+build/
+*.exe
+*.dll
