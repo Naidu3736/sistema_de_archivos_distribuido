@@ -61,14 +61,21 @@ class UploadHandler:
                 chunk = f.read(self.client.BUFFER_SIZE)
                 if not chunk:
                     break
-                self.client.socket.send(chunk)
-                bytes_sent += len(chunk)
                 
-                # Mostrar progreso cada 1MB
-                if bytes_sent % (1024 * 1024) == 0 or bytes_sent == file_size:
-                    mb_sent = bytes_sent / (1024 * 1024)
-                    mb_total = file_size / (1024 * 1024)
-                    logger.log("UPLOAD", f"Progreso transmisión: {mb_sent:.1f} / {mb_total:.1f} MB")
+                try:
+                    # VERIFICAR SI EL SERVIDOR SIGUE RESPONDIENDO
+                    self.client.socket.send(chunk)
+                    bytes_sent += len(chunk)
+                    
+                    # Mostrar progreso cada 1MB
+                    if bytes_sent % (1024 * 1024) == 0 or bytes_sent == file_size:
+                        mb_sent = bytes_sent / (1024 * 1024)
+                        mb_total = file_size / (1024 * 1024)
+                        logger.log("UPLOAD", f"Progreso transmisión: {mb_sent:.1f} / {mb_total:.1f} MB")
+                        
+                except (BrokenPipeError, ConnectionResetError, socket.error):
+                    logger.log("UPLOAD", "Error: Conexión perdida durante transmisión")
+                    raise Exception("Conexión interrumpida")
 
         logger.log("UPLOAD", f"Transmisión completada: {bytes_sent} bytes enviados")
 

@@ -11,12 +11,10 @@ from core.logger import logger
 class StorageNode:
     """Nodo de almacenamiento que guarda bloques en estructura organizada"""
     
-    def __init__(self, host='0.0.0.0', port=8002, storage_base_dir: str = "blocks", 
-                 capacity_mb: int = 500, buffer_size: int = 64 * 1024):
+    def __init__(self, host='0.0.0.0', port=8002, storage_base_dir: str = "blocks", buffer_size: int = 64 * 1024):
         self.host = host
         self.port = port
         self.storage_base_dir = storage_base_dir
-        self.capacity_mb = capacity_mb
         self.BUFFER_SIZE = buffer_size
         self.used_space_mb = 0
         
@@ -27,7 +25,7 @@ class StorageNode:
         self.running = False
         self.lock = threading.RLock()
         
-        logger.log("STORAGE_NODE", f"Nodo iniciado en {host}:{port} - Capacidad: {capacity_mb}MB, Directorio: {storage_base_dir}")
+        logger.log("STORAGE_NODE", f"Nodo iniciado en {host}:{port} - Directorio: {storage_base_dir}")
 
     def _get_block_directory(self, filename: str) -> str:
         """Obtiene el directorio específico para los bloques de un archivo"""
@@ -117,8 +115,8 @@ class StorageNode:
                 self._handle_upload_block(client_socket)
             elif command == Command.DOWNLOAD_BLOCK:
                 self._handle_download_block(client_socket)
-            elif command == Command.DELETE_BLOCK:
-                self._handle_delete_block(client_socket)
+            elif command == Command.DELETE_BLOCKS:
+                self._handle_delete_blocks(client_socket)
             elif command == Command.PING:
                 self._handle_ping(client_socket)
             else:
@@ -130,51 +128,33 @@ class StorageNode:
             NetworkUtils.send_response(client_socket, Response.SERVER_ERROR)
 
     def _handle_upload_block(self, client_socket: socket.socket):
-        """Procesa la subida de un bloque"""
+        """Procesa subida SIN verificar espacio - el coordinador ya lo hizo"""
         try:
             # 1. Recibir metadata del bloque
             metadata = NetworkUtils.receive_json(client_socket)
-            logger.log("STORAGE_NODE", f"Metadata recibida: {metadata}")
             
-            # Validar campos requeridos
-            required_fields = ['filename', 'block_id', 'physical_number', 'size']
-            for field in required_fields:
-                if field not in metadata:
-                    raise KeyError(f"Campo requerido faltante: {field}")
+            # 2. Confirmar recepción inmediatamente
+            NetworkUtils.send_response(client_socket, Response.SUCCESS)
             
+            # 3. Crear directorio y guardar bloque
             filename = metadata['filename']
-            block_id = metadata['block_id']
             physical_number = metadata['physical_number']
             block_size = metadata['size']
             
-            # 2. Verificar espacio disponible
-            with self.lock:
-                required_space_mb = block_size / (1024 * 1024)
-                if self.used_space_mb + required_space_mb > self.capacity_mb:
-                    NetworkUtils.send_response(client_socket, Response.STORAGE_FULL)
-                    logger.log("STORAGE_NODE", f"Espacio insuficiente: {self.used_space_mb:.2f}/{self.capacity_mb}MB")
-                    return
-            
-            # 3. Confirmar recepción
-            NetworkUtils.send_response(client_socket, Response.SUCCESS)
-            
-            # 4. Crear directorio específico para este archivo
             block_dir = self._get_block_directory(filename)
             os.makedirs(block_dir, exist_ok=True)
-            
-            # 5. Determinar ruta del bloque
             block_path = self._get_block_path(filename, physical_number)
             
-            # 6. Recibir y guardar el bloque
+            # 4. Recibir y guardar el bloque
             self._save_block_from_stream(client_socket, block_path, block_size)
             
-            # 7. Actualizar espacio usado
+            # 5. Actualizar espacio usado (solo para monitoreo, no para decisiones)
             with self.lock:
                 self.used_space_mb += block_size / (1024 * 1024)
             
-            # 8. Confirmar completado
+            # 6. Confirmar completado
             NetworkUtils.send_response(client_socket, Response.UPLOAD_COMPLETE)
-            logger.log("STORAGE_NODE", f"Bloque guardado: {block_path} ({block_size} bytes)")
+            logger.log("STORAGE_NODE", f"Bloque guardado: {block_path}")
             
         except Exception as e:
             logger.log("STORAGE_NODE", f"Error subiendo bloque: {e}")
@@ -213,44 +193,56 @@ class StorageNode:
             logger.log("STORAGE_NODE", f"Error descargando bloque: {e}")
             NetworkUtils.send_response(client_socket, Response.SERVER_ERROR)
 
-    def _handle_delete_block(self, client_socket: socket.socket):
-        """Elimina un bloque"""
+    def _handle_delete_blocks(self, client_socket: socket.socket):
+        """Elimina todos los bloques de un archivo específico"""
         try:
-            # 1. Recibir metadata del bloque
-            metadata = NetworkUtils.receive_json(client_socket)
-            logger.log("STORAGE_NODE", f"Metadata eliminación: {metadata}")
+            # 1. Recibir nombre del archivo
+            filename = NetworkUtils.receive_filename(client_socket)
             
-            filename = metadata['filename']
-            block_id = metadata['block_id']
-            physical_number = metadata['physical_number']
+            logger.log("STORAGE_NODE", f"Eliminando todos los bloques del archivo: {filename}")
             
-            # 2. Eliminar archivo del bloque
-            block_path = self._get_block_path(filename, physical_number)
-            if os.path.exists(block_path):
-                block_size = os.path.getsize(block_path)
-                os.remove(block_path)
-                
-                # 3. Actualizar espacio usado
-                with self.lock:
-                    self.used_space_mb = max(0, self.used_space_mb - (block_size / (1024 * 1024)))
-                
-                # 4. Intentar eliminar directorio si está vacío
-                block_dir = self._get_block_directory(filename)
-                try:
-                    if not os.listdir(block_dir):
-                        os.rmdir(block_dir)
-                        logger.log("STORAGE_NODE", f"Directorio eliminado: {block_dir}")
-                except OSError:
-                    pass  # El directorio no está vacío
-                
+            # 2. Obtener directorio del archivo
+            block_dir = self._get_block_directory(filename)
+            
+            if not os.path.exists(block_dir):
+                logger.log("STORAGE_NODE", f"Directorio no encontrado: {block_dir}")
                 NetworkUtils.send_response(client_socket, Response.SUCCESS)
-                logger.log("STORAGE_NODE", f"Bloque eliminado: {block_path}")
-            else:
-                NetworkUtils.send_response(client_socket, Response.FILE_NOT_FOUND)
-                logger.log("STORAGE_NODE", f"Bloque no encontrado para eliminar: {block_path}")
-                
+                return
+            
+            # 3. Eliminar todos los bloques del directorio
+            deleted_count = 0
+            total_size_freed = 0
+            
+            for block_file in os.listdir(block_dir):
+                if block_file.endswith('.bin'):
+                    block_path = os.path.join(block_dir, block_file)
+                    try:
+                        block_size = os.path.getsize(block_path)
+                        os.remove(block_path)
+                        deleted_count += 1
+                        total_size_freed += block_size
+                        logger.log("STORAGE_NODE", f"Bloque eliminado: {block_path}")
+                    except Exception as e:
+                        logger.log("STORAGE_NODE", f"Error eliminando {block_path}: {e}")
+            
+            # 4. Actualizar espacio usado
+            with self.lock:
+                self.used_space_mb = max(0, self.used_space_mb - (total_size_freed / (1024 * 1024)))
+            
+            # 5. Intentar eliminar directorio si está vacío
+            try:
+                if not os.listdir(block_dir):
+                    os.rmdir(block_dir)
+                    logger.log("STORAGE_NODE", f"Directorio eliminado: {block_dir}")
+            except OSError:
+                pass  # El directorio no está vacío
+            
+            # 6. Responder éxito
+            NetworkUtils.send_response(client_socket, Response.SUCCESS)
+            logger.log("STORAGE_NODE", f"Eliminación completada: {deleted_count} bloques de '{filename}'")
+            
         except Exception as e:
-            logger.log("STORAGE_NODE", f"Error eliminando bloque: {e}")
+            logger.log("STORAGE_NODE", f"Error eliminando bloques: {e}")
             NetworkUtils.send_response(client_socket, Response.SERVER_ERROR)
 
     def _handle_ping(self, client_socket: socket.socket):
@@ -286,34 +278,6 @@ class StorageNode:
             self.socket.close()
         logger.log("STORAGE_NODE", "Nodo de almacenamiento detenido")
 
-    def get_storage_status(self) -> Dict:
-        """Obtiene estado del almacenamiento del nodo"""
-        with self.lock:
-            # Calcular espacio usado recorriendo todos los directorios
-            total_used_bytes = 0
-            total_blocks = 0
-            
-            if os.path.exists(self.storage_base_dir):
-                for basename in os.listdir(self.storage_base_dir):
-                    block_dir = os.path.join(self.storage_base_dir, basename)
-                    if os.path.isdir(block_dir):
-                        for block_file in os.listdir(block_dir):
-                            if block_file.endswith('.bin'):
-                                block_path = os.path.join(block_dir, block_file)
-                                total_used_bytes += os.path.getsize(block_path)
-                                total_blocks += 1
-            
-            used_space_mb = total_used_bytes / (1024 * 1024)
-            
-            return {
-                'capacity_mb': self.capacity_mb,
-                'used_space_mb': round(used_space_mb, 2),
-                'available_space_mb': round(self.capacity_mb - used_space_mb, 2),
-                'usage_percent': round((used_space_mb / self.capacity_mb) * 100, 2) if self.capacity_mb > 0 else 0,
-                'total_blocks': total_blocks,
-                'total_directories': len(os.listdir(self.storage_base_dir)) if os.path.exists(self.storage_base_dir) else 0,
-                'storage_base_dir': self.storage_base_dir
-            }
 
     def cleanup_empty_directories(self):
         """Limpia directorios vacíos"""

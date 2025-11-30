@@ -1,4 +1,5 @@
 import signal
+import os
 import sys
 from server.network_server import NetworkServer
 from server.nodes import node_manager
@@ -23,7 +24,7 @@ class ServerManager:
         signal.signal(signal.SIGTERM, signal_handler) # kill command
 
     def configure_nodes(self):
-        """Configura los nodos de almacenamiento (maximo 3)"""
+        """Configura los nodos de almacenamiento"""
         existing_nodes = node_manager.get_all_nodes()
         
         if existing_nodes:
@@ -34,6 +35,10 @@ class ServerManager:
             usar_existentes = input("Usar nodos existentes? (s/n): ").lower().strip()
             if usar_existentes == 's':
                 return True
+        
+        if os.path.exists("data/nodes.json"):
+            os.remove("data/nodes.json")
+            node_manager.initialize()
         
         print("\n" + "="*50)
         print("CONFIGURACION DE NODOS DE ALMACENAMIENTO")

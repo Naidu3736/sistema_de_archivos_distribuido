@@ -60,65 +60,6 @@ class FileServer:
         logger.log("SERVER", f"Archivos registrados: {len(self.file_table.files)}")
         logger.log("SERVER", f"Nodos registrados: {len(self.node_manager.nodes)}")
 
-    # =========================================================================
-    # MÉTODOS DE GESTIÓN DE NODOS
-    # =========================================================================
-
-    def distribute_blocks_to_nodes(self, num_blocks: int, file_size: int) -> list:
-        """
-        Distribuye bloques entre los nodos disponibles - SOLO PLANIFICACIÓN
-        No asigna recursos todavía, solo planifica
-        """
-        node_assignments = []
-        
-        for i in range(num_blocks):
-            # Seleccionar nodo primario candidato
-            primary_node = self.node_manager.get_best_primary_node()
-            if not primary_node:
-                raise Exception("No hay nodos disponibles para datos primarios")
-            
-            # Seleccionar nodos para réplicas (excluyendo el primario)
-            replica_nodes = self.node_manager.get_best_replica_nodes(
-                count=2, 
-                exclude_nodes=[primary_node]
-            )
-            
-            if not replica_nodes:
-                raise Exception("No hay nodos disponibles para réplicas")
-            
-            # Solo planificamos, la asignación real se hace después de confirmar el envío
-            node_assignments.append((primary_node, replica_nodes))
-        
-        return node_assignments
-
-    def free_blocks_from_nodes(self, block_chain: list, file_size: int):
-        """Libera espacio en nodos para una cadena de bloques"""
-        if not block_chain:
-            return
-        
-        size_per_block_mb = (file_size / len(block_chain)) / (1024 * 1024)
-        
-        for logical_id, physical_number, primary_node, replica_nodes in block_chain:
-            # Liberar espacio primario
-            if primary_node:
-                self.node_manager.free_primary(primary_node, size_per_block_mb)
-            
-            # Liberar espacio de réplicas
-            for replica_node in replica_nodes:
-                if replica_node:
-                    self.node_manager.free_replica(replica_node, size_per_block_mb)
-
-    def get_alternative_node(self, excluded_nodes: list, node_type: str = "primary") -> str:
-        """Obtiene un nodo alternativo excluyendo los especificados"""
-        if node_type == "primary":
-            candidates = self.node_manager.get_primary_candidates()
-        else:
-            candidates = self.node_manager.get_replica_candidates(exclude_nodes=excluded_nodes)
-        
-        for candidate in candidates:
-            if candidate not in excluded_nodes and self.check_node_health_with_retry(candidate):
-                return candidate
-        return None
 
     # =========================================================================
     # MÉTODOS PRINCIPALES DE PROCESAMIENTO (DELEGADOS A HANDLERS)

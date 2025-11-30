@@ -35,18 +35,14 @@ class NodeManager:
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super(NodeManager, cls).__new__(cls)
-                cls._instance._initialized = False
+                cls._instance.initialize(data_dir)
             return cls._instance
     
-    def __init__(self, data_dir: str = "data"):
-        if self._initialized:
-            return
-            
+    def initialize(self, data_dir: str = "data"):
         self.data_dir = data_dir
         self.config_file = os.path.join(data_dir, "nodes.json")
         self.lock = threading.RLock()
         self.nodes: Dict[str, Node] = {}
-        self._initialized = True
         
         # Cargar nodos existentes al inicializar
         self.load_nodes()
@@ -186,37 +182,62 @@ class NodeManager:
                 'total_capacity_mb': total_primary  # Capacidad total = espacio primario total
             }
 
-    # Los siguientes métodos se mantienen igual que antes
-    def allocate_primary(self, node_id: str, size_mb: int) -> bool:
-        """Asigna espacio para datos primarios en un nodo"""
+    def allocate_primary(self, node_id: str, size_mb: float) -> bool:
+        """Asigna espacio para datos primarios - versión más precisa"""
         with self.lock:
-            if node_id in self.nodes:
-                node = self.nodes[node_id]
-                if node.used_primary_mb + size_mb <= node.max_primary_mb:
-                    node.used_primary_mb += size_mb
-                    self.save_nodes()
-                    logger.log("NODES", f"Espacio primario asignado: {size_mb}MB en {node_id}")
-                    return True
+            if node_id not in self.nodes:
+                return False
+                
+            node = self.nodes[node_id]
+            if node.available_primary_mb >= size_mb:
+                node.used_primary_mb += size_mb
+                self.save_nodes()
+                logger.log("NODES", f"Primario: {size_mb:.3f}MB asignados a {node_id}")
+                return True
+            
+            logger.log("NODES_WARNING", 
+                f"Sin espacio en {node_id}: necesita {size_mb:.3f}MB, "
+                f"disponible {node.available_primary_mb:.3f}MB"
+            )
             return False
 
-    def allocate_replica(self, node_id: str, size_mb: int) -> bool:
-        """Asigna espacio para réplicas en un nodo"""
+    def allocate_replica(self, node_id: str, size_mb: float) -> bool:
+        """Asigna espacio para réplicas - versión más precisa"""
         with self.lock:
-            if node_id in self.nodes:
-                node = self.nodes[node_id]
-                if node.used_replica_mb + size_mb <= node.max_replica_mb:
-                    node.used_replica_mb += size_mb
-                    self.save_nodes()
-                    logger.log("NODES", f"Espacio réplica asignado: {size_mb}MB en {node_id}")
-                    return True
+            if node_id not in self.nodes:
+                return False
+                
+            node = self.nodes[node_id]
+            if node.available_replica_mb >= size_mb:
+                node.used_replica_mb += size_mb
+                self.save_nodes()
+                logger.log("NODES", f"Réplica: {size_mb:.3f}MB asignados a {node_id}")
+                return True
+            
+            logger.log("NODES_WARNING", 
+                f"Sin espacio para réplica en {node_id}: necesita {size_mb:.3f}MB, "
+                f"disponible {node.available_replica_mb:.3f}MB"
+            )
             return False
+
+    def verify_node_space(self, node_id: str, size_mb: float, is_primary: bool) -> bool:
+        """Verifica si un nodo tiene espacio sin asignarlo"""
+        with self.lock:
+            if node_id not in self.nodes:
+                return False
+                
+            node = self.nodes[node_id]
+            if is_primary:
+                return node.available_primary_mb >= size_mb
+            else:
+                return node.available_replica_mb >= size_mb
 
     def free_primary(self, node_id: str, size_mb: int) -> bool:
         """Libera espacio de datos primarios"""
         with self.lock:
             if node_id in self.nodes:
                 node = self.nodes[node_id]
-                node.used_primary_mb = max(0, node.used_primary_mb - size_mb)
+                node.used_primary_mb = max(0, node.used_primary_mb - 1)
                 self.save_nodes()
                 return True
             return False
@@ -226,10 +247,36 @@ class NodeManager:
         with self.lock:
             if node_id in self.nodes:
                 node = self.nodes[node_id]
-                node.used_replica_mb = max(0, node.used_replica_mb - size_mb)
+                node.used_replica_mb = max(0, node.used_replica_mb - 1)
                 self.save_nodes()
                 return True
             return False
+        
+    def free_file_space(self, block_chain: list, file_size: int):
+        """Libera espacio para una cadena de bloques - SIMPLIFICADO"""
+        with self.lock:
+            if not block_chain:
+                return
+                
+            total_blocks = len(block_chain)
+            logger.log("NODES", f"Liberando espacio: {total_blocks} bloques (1MB cada uno)")
+            
+            for logical_id, physical_number, primary_node, replica_nodes in block_chain:
+                # Liberar espacio primario - SIEMPRE 1MB
+                if primary_node and primary_node in self.nodes:
+                    self.nodes[primary_node].used_primary_mb = max(0, 
+                        self.nodes[primary_node].used_primary_mb - 1
+                    )
+                
+                # Liberar espacio de réplicas - SIEMPRE 1MB
+                for replica_node in replica_nodes:
+                    if replica_node and replica_node in self.nodes:
+                        self.nodes[replica_node].used_replica_mb = max(0,
+                            self.nodes[replica_node].used_replica_mb - 1
+                        )
+            
+            self.save_nodes()
+            logger.log("NODES", f"Espacio liberado: {total_blocks}MB")
 
     def get_primary_candidates(self) -> List[str]:
         """Obtiene nodos con espacio disponible para datos primarios"""

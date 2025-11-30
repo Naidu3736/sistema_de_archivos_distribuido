@@ -15,7 +15,7 @@ class Command(Enum):
     # Comandos del servidor a nodos de almacenamiento
     UPLOAD_BLOCK = 9
     DOWNLOAD_BLOCK = 10
-    DELETE_BLOCK = 11
+    DELETE_BLOCKS = 11
     PING = 12
 
     def to_bytes(self):

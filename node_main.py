@@ -5,12 +5,11 @@ from nodes.storage_node import StorageNode
 from core.logger import logger
 
 class StorageNodeManager:
-    def __init__(self, host='localhost', port=8002, storage_dir="blocks", capacity_mb=500):
+    def __init__(self, host='localhost', port=8002, storage_dir="blocks"):
         self.node = StorageNode(
             host=host, 
             port=port, 
-            storage_base_dir=storage_dir,
-            capacity_mb=capacity_mb
+            storage_base_dir=storage_dir
         )
         self.setup_signal_handlers()
     
@@ -30,7 +29,6 @@ class StorageNodeManager:
         logger.log("STORAGE_NODE", f"Host: {self.node.host}")
         logger.log("STORAGE_NODE", f"Puerto: {self.node.port}")
         logger.log("STORAGE_NODE", f"Directorio: {self.node.storage_base_dir}")
-        logger.log("STORAGE_NODE", f"Capacidad: {self.node.capacity_mb}MB")
         logger.log("STORAGE_NODE", "Presiona Ctrl+C para detener el nodo")
         
         try:
@@ -53,18 +51,14 @@ def main():
     
     storage_dir = input("Ingrese el directorio de almacenamiento [blocks]: ").strip() or 'blocks'
     
-    capacity_input = input("Ingrese la capacidad en MB [500]: ").strip()
-    capacity_mb = int(capacity_input) if capacity_input else 500
-    
     # Crear nombre único para el directorio basado en el puerto
-    storage_dir = f"{storage_dir}"
+    storage_dir = f"{storage_dir}_{port}"
     
     print("\n" + "="*50)
     print("CONFIGURACIÓN DEL NODO:")
     print(f"  Host: {host}")
     print(f"  Puerto: {port}")
     print(f"  Directorio: {storage_dir}")
-    print(f"  Capacidad: {capacity_mb}MB")
     print("="*50)
     
     confirm = input("\n¿Iniciar nodo con esta configuración? (s/n): ").lower().strip()
@@ -75,8 +69,7 @@ def main():
     node_manager = StorageNodeManager(
         host=host,
         port=port, 
-        storage_dir=storage_dir,
-        capacity_mb=capacity_mb
+        storage_dir=storage_dir
     )
     node_manager.run()
 

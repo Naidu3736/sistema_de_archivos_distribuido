@@ -9,10 +9,10 @@ class DeleteHandler:
         self.server = file_server
         
     def process(self, client: socket.socket):
-        """Procesa una solicitud de eliminación de archivo en nodos distribuidos"""
+        """Procesa eliminación de archivo - versión optimizada"""
         try:
-            # Fase 1: Verificación de existencia
             filename = NetworkUtils.receive_filename(client)
+            
             with self.server.file_table_lock:
                 file_info = self.server.file_table.get_info_file(filename)
                 
@@ -20,115 +20,117 @@ class DeleteHandler:
                 NetworkUtils.send_response(client, Response.FILE_NOT_FOUND)
                 return
 
-            # Fase 2: Eliminación distribuida
-            success = self._delete_file_distributed(filename, file_info)
+            # Eliminar el archivo completo
+            success = self._delete_file(filename, file_info)
             
             if success:
                 NetworkUtils.send_response(client, Response.DELETE_COMPLETE)
-                logger.log("DELETE", f"Archivo eliminado distribuido: {filename}")
+                logger.log("DELETE", f"Archivo eliminado: {filename}")
             else:
                 NetworkUtils.send_response(client, Response.SERVER_ERROR)
-                logger.log("DELETE", f"Error eliminando archivo distribuido: {filename}")
 
         except Exception as e:
-            logger.log("DELETE", f'Error durante eliminación distribuida: {str(e)}')
+            logger.log("DELETE", f'Error eliminando archivo: {str(e)}')
             NetworkUtils.send_response(client, Response.SERVER_ERROR)
 
-    def _delete_file_distributed(self, filename: str, file_info) -> bool:
-        """Elimina completamente un archivo del sistema distribuido"""
+    def _delete_file(self, filename: str, file_info) -> bool:
+        """Elimina completamente un archivo - versión optimizada"""
         file_id = self.server.file_table.name_to_id[filename]
 
         try:
-            # Obtener cadena de bloques
+            # 1. Obtener cadena de bloques
             with self.server.block_table_lock:
                 block_chain = self.server.block_table.get_block_chain(file_info.first_block_id)
             
-            # Eliminar bloques físicos de los nodos
-            delete_success = self._delete_blocks_from_nodes(block_chain, filename, file_info.total_size)
+            # 2. Obtener todos los nodos únicos que contienen bloques de este archivo
+            unique_nodes = self._get_unique_nodes(block_chain)
             
-            if not delete_success:
-                logger.log("DELETE", f"Algunos bloques no pudieron eliminarse de los nodos: {filename}")
-                # Continuamos con la eliminación lógica aunque algunos nodos fallen
+            # 3. Eliminar bloques físicos de nodos (por nodo)
+            delete_ok = self._delete_blocks_by_node(unique_nodes, filename)
+            
+            # 4. Liberar espacio en coordinador
+            if block_chain:
+                self.server.node_manager.free_file_space(block_chain, file_info.total_size)
+            
+            # 5. Limpiar metadatos
+            self._cleanup_metadata(file_id, filename, file_info.first_block_id)
+            
+            logger.log("DELETE", f"Eliminación completada: {filename} - {len(block_chain)} bloques en {len(unique_nodes)} nodos")
+            return True
+            
+        except Exception as e:
+            logger.log("DELETE", f"Error en eliminación: {e}")
+            return False
 
+    def _get_unique_nodes(self, block_chain: list) -> set:
+        """Obtiene todos los nodos únicos que contienen bloques del archivo"""
+        unique_nodes = set()
+        
+        if not block_chain:
+            return unique_nodes
+            
+        for logical_id, physical_number, primary_node, replica_nodes in block_chain:
+            if primary_node:
+                unique_nodes.add(primary_node)
+            for replica_node in replica_nodes:
+                if replica_node:
+                    unique_nodes.add(replica_node)
+        
+        logger.log("DELETE", f"Nodos únicos encontrados: {list(unique_nodes)}")
+        return unique_nodes
+
+    def _delete_blocks_by_node(self, unique_nodes: set, filename: str) -> bool:
+        """Elimina todos los bloques de un archivo por nodo"""
+        if not unique_nodes:
+            return True
+            
+        all_ok = True
+        
+        for node_id in unique_nodes:
+            node_info = self.server.node_manager.get_node_info(node_id)
+            if not node_info:
+                logger.log("DELETE", f"Nodo no encontrado: {node_id}")
+                all_ok = False
+                continue
+                
+            # Verificar si el nodo está activo
+            if not self.server.node_client.ping(node_info['host'], node_info['port']):
+                logger.log("DELETE", f"Nodo inactivo: {node_id}")
+                all_ok = False
+                continue
+            
+            try:
+                # Usar el método delete_blocks que elimina todos los bloques del archivo
+                success = self.server.node_client.delete_blocks(
+                    node_info['host'], 
+                    node_info['port'], 
+                    filename
+                )
+                
+                if success:
+                    logger.log("DELETE", f"Todos los bloques de '{filename}' eliminados de {node_id}")
+                else:
+                    logger.log("DELETE", f"Error eliminando bloques de '{filename}' de {node_id}")
+                    all_ok = False
+                    
+            except Exception as e:
+                logger.log("DELETE", f"Excepción eliminando bloques de {node_id}: {e}")
+                all_ok = False
+        
+        return all_ok
+
+    def _cleanup_metadata(self, file_id: int, filename: str, first_block_id: int):
+        """Limpia metadatos"""
+        try:
             # Liberar bloques lógicos
             with self.server.block_table_lock:
-                blocks_freed = self.server.block_table.free_blocks_chain(file_info.first_block_id)
+                blocks_freed = self.server.block_table.free_blocks_chain(first_block_id)
             
-            # Liberar espacio en nodos
-            if block_chain:
-                self.server.free_blocks_from_nodes(block_chain, file_info.total_size)
-
             # Eliminar de FileTable
             with self.server.file_table_lock:
                 self.server.file_table.delete_file(file_id)
-
-            logger.log("DELETE", f"Archivo eliminado: {filename} (bloques liberados: {blocks_freed})")
-            return True
-            
+                
+            logger.log("DELETE", f"Metadatos limpiados: {filename} (bloques liberados: {blocks_freed})")
+                
         except Exception as e:
-            logger.log("DELETE", f"Error en eliminación distribuida: {e}")
-            return False
-
-    def _delete_blocks_from_nodes(self, block_chain: list, filename: str, file_size: int) -> bool:
-        """Elimina bloques físicos de todos los nodos"""
-        if not block_chain:
-            return True
-        
-        overall_success = True
-        
-        for logical_id, physical_number, primary_node, replica_nodes in block_chain:
-            # Eliminar del nodo primario
-            if primary_node:
-                primary_success = self._delete_block_from_node(primary_node, filename, logical_id, physical_number)
-                if not primary_success:
-                    logger.log("DELETE", f"Error eliminando bloque {logical_id} del nodo primario {primary_node}")
-                    overall_success = False
-            
-            # Eliminar de nodos réplica
-            for replica_node in replica_nodes:
-                if replica_node:
-                    replica_success = self._delete_block_from_node(replica_node, filename, logical_id, physical_number, is_replica=True)
-                    if not replica_success:
-                        logger.log("DELETE", f"Error eliminando bloque {logical_id} del nodo réplica {replica_node}")
-                        # No marcamos overall_success como False para réplicas
-        
-        return overall_success
-
-    def _delete_block_from_node(self, node_id: str, filename: str, logical_id: int, 
-                               physical_number: int, is_replica: bool = False) -> bool:
-        """Elimina un bloque específico de un nodo"""
-        node_info = self.server.node_manager.get_node_info(node_id)
-        if not node_info:
-            logger.log("DELETE", f"Nodo no encontrado: {node_id}")
-            return False
-        
-        # Verificar si el nodo está activo
-        if not self.server.node_client.ping(node_info['host'], node_info['port']):
-            logger.log("DELETE", f"Nodo inactivo, no se puede eliminar bloque: {node_id}")
-            return False
-        
-        block_info = {
-            'block_id': logical_id,
-            'filename': filename,
-            'physical_number': physical_number,
-            'is_replica': is_replica
-        }
-        
-        try:
-            success = self.server.node_client.delete_block(
-                node_info['host'], 
-                node_info['port'], 
-                block_info
-            )
-            
-            if success:
-                node_type = "réplica" if is_replica else "primario"
-                logger.log("DELETE", f"Bloque {logical_id} eliminado de {node_type}: {node_id}")
-            else:
-                logger.log("DELETE", f"Error eliminando bloque {logical_id} de {node_id}")
-            
-            return success
-            
-        except Exception as e:
-            logger.log("DELETE", f"Excepción eliminando bloque de {node_id}: {e}")
-            return False
+            logger.log("DELETE", f"Error limpiando metadatos: {e}")

@@ -111,7 +111,7 @@ class NodeClient:
             logger.log("NODE_CLIENT", f"Error obteniendo bloque de {host}:{port}: {e}")
             return None
 
-    def delete_block(self, host: str, port: int, block_info: dict) -> bool:
+    def delete_blocks(self, host: str, port: int, filename: str) -> bool:
         """Elimina un bloque de un nodo de almacenamiento"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -119,29 +119,23 @@ class NodeClient:
                 sock.settimeout(self.timeout)
                 sock.connect((host, port))
                 
-                # 1. Enviar comando DELETE_BLOCK
-                NetworkUtils.send_command(sock, Command.DELETE_BLOCK)
+                # 1. Enviar comando DELETE_BLOCKS
+                NetworkUtils.send_command(sock, Command.DELETE_BLOCKS)
                 
-                # 2. Enviar metadatos del bloque
-                metadata = {
-                    'filename': block_info['filename'],
-                    'block_id': block_info['block_id'],
-                    'physical_number': block_info['physical_number'],
-                    'is_replica': block_info.get('is_replica', False)
-                }
-                NetworkUtils.send_json(sock, metadata)
+                # 2. Eviar nombre del archivo
+                NetworkUtils.send_filename(sock, filename)
                 
                 # 3. Esperar respuesta
-                response = NetworkUtils.receive_response(sock)
+                response = NetworkUtils.receive_response(sock, filename)
                 success = response == Response.SUCCESS
                 
                 if success:
-                    logger.log("NODE_CLIENT", f"Bloque {block_info['physical_number']} eliminado de {host}:{port}")
+                    logger.log("NODE_CLIENT", f"Bloques eliminados de {host}:{port}")
                 else:
-                    logger.log("NODE_CLIENT", f"Error eliminando bloque de {host}:{port}: {response}")
+                    logger.log("NODE_CLIENT", f"Error eliminando bloques de {host}:{port}: {response}")
                 
                 return success
                 
         except Exception as e:
-            logger.log("NODE_CLIENT", f"Error eliminando bloque de {host}:{port}: {e}")
+            logger.log("NODE_CLIENT", f"Error eliminando bloques de {host}:{port}: {e}")
             return False
