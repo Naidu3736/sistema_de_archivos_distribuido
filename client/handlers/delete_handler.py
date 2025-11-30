@@ -16,7 +16,7 @@ class DeleteHandler:
             
             # Fase 1: Envío de solicitud
             NetworkUtils.send_command(self.client.socket, Command.DELETE)
-            response = NetworkUtils.receive_response(self.client)
+            response = NetworkUtils.receive_response(self.client.sock)
             if response != Response.SUCCESS:
                 logger.log("DELETE", "Error al eliminar archivo")
                 return 
