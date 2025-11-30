@@ -26,7 +26,10 @@ class FileServer:
         # Locks para acceso concurrente
         self.file_table_lock = threading.RLock()
         self.block_table_lock = threading.RLock()
-        self.file_operation_lock = threading.Lock()
+
+        self.download_delete_lock = threading.Lock()
+        self.active_downloads = 0
+        self.download_counter_lock = threading.Lock()
         
         # Crear directorios necesarios para operación
         os.makedirs(temp_dir, exist_ok=True)
@@ -66,15 +69,15 @@ class FileServer:
     # =========================================================================
 
     def process_upload_request(self, client: socket.socket):
-        with self.file_operation_lock:
+        # with self.file_operation_lock:
             return self.upload_handler.process(client)
 
     def process_download_request(self, client: socket.socket):
-        with self.file_operation_lock:
+        # with self.file_operation_lock:
             return self.download_handler.process(client)
 
     def process_delete_request(self, client: socket.socket):
-        with self.file_operation_lock:
+        # with self.file_operation_lock:
             return self.delete_handler.process(client)
 
     def process_list_request(self, client: socket.socket):

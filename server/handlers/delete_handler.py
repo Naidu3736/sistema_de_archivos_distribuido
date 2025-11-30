@@ -11,7 +11,16 @@ class DeleteHandler:
     def process(self, client: socket.socket):
         """Procesa eliminación de archivo - versión optimizada"""
         try:
-            filename = NetworkUtils.receive_filename(client)
+            with self.server.download_counter_lock:
+                if self.server.active_downloads > 0:
+                    logger.log("DELETE", f"Eliminación bloqueada - {self.server.active_downloads} descargas activas")
+                    NetworkUtils.send_response(client, Response.SERVER_ERROR)
+                    return
+            
+            NetworkUtils.send_response(client, Response.SUCCESS)
+            
+            with self.server.download_delete_lock:
+                filename = NetworkUtils.receive_filename(client)
             
             with self.server.file_table_lock:
                 file_info = self.server.file_table.get_info_file(filename)

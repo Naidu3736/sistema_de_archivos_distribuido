@@ -11,6 +11,8 @@ class DownloadHandler:
         
     def process(self, client: socket.socket):
         """Procesa una solicitud de download del cliente"""
+        with self.server.download_counter_lock:
+            self.server.active_downloads += 1
         try:
             # Fase 1: Verificación de existencia
             filename = NetworkUtils.receive_filename(client)
@@ -34,6 +36,9 @@ class DownloadHandler:
                 NetworkUtils.send_response(client, Response.SERVER_ERROR)
             except:
                 pass  # El cliente ya se desconectó
+        finally:
+            with self.server.download_counter_lock:
+                self.server.active_downloads -= 1
 
     def _send_file_to_client(self, client: socket.socket, filename: str, file_info):
         """Envía el archivo al cliente desde los nodos"""
